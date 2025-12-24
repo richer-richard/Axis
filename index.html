@@ -108,7 +108,7 @@
       <footer class="landing-footer">
         <div class="container">
           <div class="footer-content">
-            <p>Made with love by July and Emily</p>
+            <p>Made with love by July, Emily, and Richard</p>
             <nav class="footer-nav">
               <a href="#hero" class="footer-link">Home</a>
               <a href="#features" class="footer-link">Features</a>
@@ -124,6 +124,9 @@
     <!-- Login/Signup Screen -->
     <div id="authScreen" class="auth-screen hidden">
       <div class="auth-container">
+        <button type="button" id="backToHomeBtn" class="btn-back-home">
+          ← Back to Home
+        </button>
         <div class="auth-header">
           <div class="logo" id="authLogo">
             <span class="logo-mark target-icon" aria-hidden="true"></span>
@@ -161,9 +164,10 @@
             </button>
             <div class="auth-divider"><span>or</span></div>
             <button type="button" id="continueWithoutLoginBtn" class="btn btn-ghost btn-full">
-              Continue without login (Testing)
+              Continue as guest
             </button>
             <div id="authError" class="auth-error hidden"></div>
+            <p class="auth-switch-text">Don't have an account? <a href="#" id="switchToSignupLink">Sign up</a></p>
           </form>
         </div>
 
@@ -194,7 +198,12 @@
               </svg>
               Continue with Google
             </button>
+            <div class="auth-divider"><span>or</span></div>
+            <button type="button" id="continueWithoutSignupBtn" class="btn btn-ghost btn-full">
+              Continue as guest
+            </button>
             <div id="signupError" class="auth-error hidden"></div>
+            <p class="auth-switch-text">Already have an account? <a href="#" id="switchToLoginLink">Log in</a></p>
           </form>
         </div>
       </div>

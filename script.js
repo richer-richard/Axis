@@ -922,8 +922,9 @@ function initAuth() {
   $("#googleLoginBtn")?.addEventListener("click", handleGoogleAuth);
   $("#googleSignupBtn")?.addEventListener("click", handleGoogleAuth);
 
-  // Continue without login button (for testing)
+  // Continue without login buttons (both login and signup forms)
   $("#continueWithoutLoginBtn")?.addEventListener("click", handleContinueWithoutLogin);
+  $("#continueWithoutSignupBtn")?.addEventListener("click", handleContinueWithoutLogin);
 
   // Logout button
   $("#logoutBtn")?.addEventListener("click", handleLogout);
@@ -1612,26 +1613,44 @@ function showHabitNotification(habit) {
 
 function initLandingPage() {
   // Landing page button handlers
+  // "Get Started" buttons go to signup tab
   $('#landingGetStartedBtn').addEventListener('click', () => {
     showView('authScreen');
-    // Switch to signup tab
     $('.auth-tab[data-tab="signup"]').click();
   });
   
+  // "Log In" button goes to login tab
   $('#landingLoginBtn').addEventListener('click', () => {
     showView('authScreen');
-    // Ensure login tab is active
     $('.auth-tab[data-tab="login"]').click();
   });
   
+  // Hero "Get Started" goes to signup
   $('#heroGetStartedBtn').addEventListener('click', () => {
     showView('authScreen');
     $('.auth-tab[data-tab="signup"]').click();
   });
   
+  // CTA "Try Axis Now" goes to signup
   $('#ctaGetStartedBtn').addEventListener('click', () => {
     showView('authScreen');
     $('.auth-tab[data-tab="signup"]').click();
+  });
+  
+  // Back to home button on auth screen
+  $('#backToHomeBtn')?.addEventListener('click', () => {
+    showView('landingPage');
+  });
+  
+  // Switch links between login and signup forms
+  $('#switchToSignupLink')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    $('.auth-tab[data-tab="signup"]').click();
+  });
+  
+  $('#switchToLoginLink')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    $('.auth-tab[data-tab="login"]').click();
   });
 }
 
