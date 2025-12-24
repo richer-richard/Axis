@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <title>Axis - Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="dashboard">
+      <!-- Header -->
+      <header class="app-header">
+        <div class="logo">
+          <span class="logo-mark target-icon" aria-hidden="true"></span>
+          <span class="logo-text">Axis</span>
+        </div>
+        <div class="header-message">
+          Precision planning with calm focus
+        </div>
+        <div class="header-actions">
+          <button id="settingsBtn" class="btn-icon" title="Settings">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="10" cy="10" r="3"/>
+              <path d="M10 1v4M10 15v4M19 10h-4M5 10H1M16.66 3.34l-2.83 2.83M6.17 13.83l-2.83 2.83M16.66 16.66l-2.83-2.83M6.17 6.17L3.34 3.34"/>
+            </svg>
+          </button>
+          <button id="logoutBtn" class="btn-icon" title="Logout">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 3H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h5M13 7l4 4-4 4M17 11H7"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <main class="app-main">
+      <!-- Left Sidebar -->
+      <aside class="sidebar">
+        <!-- Goals Section -->
+        <section class="panel panel-goals">
+          <div class="panel-header">
+            <div class="panel-header-row">
+              <div>
+            <h2>Goals Hierarchy</h2>
+            <span class="panel-subtitle">Your goals across different timeframes</span>
+              </div>
+              <button id="addGoalBtn" class="btn btn-secondary btn-sm">+ Add goal</button>
+            </div>
+          </div>
+          <div class="goals-content">
+            <div id="goalsList" class="goals-list-hierarchy">
+              <!-- Goals populated by JS with hierarchy -->
+            </div>
+          </div>
+        </section>
+
+        <!-- To-Do List -->
+        <section class="panel panel-tasks">
+          <div class="panel-header">
+            <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+              <div>
+                <h2>To‑Do List</h2>
+                <span class="panel-subtitle">Ranked by urgency &amp; deadlines</span>
+              </div>
+              <button type="button" id="addTaskBtn" class="btn btn-primary" style="padding: 6px 12px; font-size: 0.75rem;" title="Add new task">
+                + Add Task
+              </button>
+            </div>
+          </div>
+          <div id="taskList" class="task-list">
+            <!-- Tasks populated by JS -->
+          </div>
+        </section>
+
+        <!-- Daily Habits -->
+        <section class="panel panel-habits">
+          <div class="panel-header">
+            <h2>Daily Habits</h2>
+            <span class="panel-subtitle">Fixed tasks you can set up</span>
+          </div>
+          <div class="habits-content">
+            <button type="button" id="addHabitBtn" class="btn-add-goal" title="Add a new habit">
+              <span class="btn-add-goal-icon">+</span>
+              <span>Add Daily Habit</span>
+            </button>
+            <div id="habitsList" class="habits-list">
+              <!-- Daily habits populated by JS -->
+            </div>
+          </div>
+        </section>
+
+        <!-- Chatbot -->
+        <section class="panel panel-chat">
+          <div class="panel-header">
+            <h2>Axis Assistant</h2>
+            <span class="panel-subtitle">Ask for planning &amp; focus tips</span>
+          </div>
+          <div id="chatWindow" class="chat-window">
+            <!-- Chat messages -->
+          </div>
+          <form id="chatForm" class="chat-input-row">
+            <input
+              type="text"
+              id="chatInput"
+              placeholder="Ask me anything about your schedule..."
+              autocomplete="off"
+            />
+            <button type="submit" class="btn btn-primary">Send</button>
+          </form>
+        </section>
+      </aside>
+
+      <!-- Middle: Calendar -->
+      <section class="calendar-section">
+        <header class="calendar-header">
+          <div class="calendar-title">
+            <h2>Your AI‑generated schedule</h2>
+            <span id="calendarSubtitle" class="calendar-subtitle">
+              Once generated, your time‑blocked plan will appear here.
+            </span>
+          </div>
+          <div class="calendar-controls">
+            <button id="syncCalendarBtn" class="btn btn-secondary btn-sync" title="Sync daily goals to tasks and regenerate schedule">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
+                <path d="M1 8v6h6M15 8V2H9M1 8l6-6M15 8l-6 6"/>
+              </svg>
+              Sync Calendar
+            </button>
+            <button class="btn-toggle-view active" data-view="daily">Daily</button>
+            <button class="btn-toggle-view" data-view="weekly">Weekly</button>
+            <button class="btn-toggle-view" data-view="monthly">Monthly</button>
+          </div>
+        </header>
+
+        <div id="calendarContainer" class="calendar-container">
+          <!-- Calendar rendered by JS -->
+        </div>
+      </section>
+
+
+      <!-- Multi-step onboarding modal (only shown during signup) -->
+      <div id="wizard" class="wizard-modal hidden">
+        <div class="wizard-overlay"></div>
+        <div class="wizard-content">
+          <section class="wizard">
+        <!-- Step indicators -->
+        <div class="wizard-steps">
+          <div class="wizard-step-indicator" data-step="1">1. Profile</div>
+          <div class="wizard-step-indicator" data-step="2">2. Goals</div>
+        </div>
+
+          <!-- Step 1: Onboarding -->
+          <div class="wizard-step" data-step="1">
+            <h2>Step 1: Tell Axis about you</h2>
+            <p class="step-description">
+              I'll create a realistic plan around your real life, not the other way around.
+            </p>
+
+            <form id="profileForm" class="form-grid">
+              <!-- Basic Info -->
+              <fieldset>
+                <legend>Basic Info</legend>
+                <label>
+                  Name
+                  <input type="text" id="user_name" required />
+                </label>
+
+                <label>
+                  Age group
+                  <select id="user_age_group" required>
+                    <option value="">Select...</option>
+                    <option>Middle School</option>
+                    <option>High School</option>
+                    <option>College</option>
+                    <option>Other</option>
+                  </select>
+                </label>
+              </fieldset>
+
+              <!-- Schedule & Routine -->
+              <fieldset>
+                <legend>Schedule &amp; Routine</legend>
+                <div class="subsection">
+                  <label>Weekly schedule (Mon‑Fri)</label>
+                  <p class="hint">
+                    Add multiple fixed commitments per day (classes, clubs, etc.). Each needs a name, time range, and optional description.
+                  </p>
+                  <div id="weekly_schedule" class="weekly-grid">
+                    <!-- Generated by JS -->
+                  </div>
+                </div>
+
+                <div class="subsection">
+                  <label>Weekend fixed activities (Sat & Sun)</label>
+                  <p class="hint">
+                    Add multiple fixed activities for weekends. Each needs a day, name, time range, and optional description.
+                  </p>
+                  <div id="weekend_schedule" class="weekend-grid">
+                    <!-- Generated by JS -->
+                  </div>
+                </div>
+
+                <div class="two-col">
+                  <label>
+                    Typical sleep (weekdays)
+                    <input type="text" id="sleep_weekdays" placeholder="23:00‑07:00" />
+                  </label>
+                  <label>
+                    Typical sleep (weekends)
+                    <input type="text" id="sleep_weekends" placeholder="00:00‑09:00" />
+                  </label>
+                </div>
+
+                <label>
+                  Standard break times (e.g., lunch)
+                  <input type="text" id="break_times" placeholder="12:30‑13:00 lunch; 18:00‑18:30 dinner" />
+                </label>
+              </fieldset>
+
+              <!-- Learning Personalization -->
+              <fieldset>
+                <legend>Learning Personalization</legend>
+
+                <div class="button-group" id="is_procrastinator_group">
+                  <span class="label-inline">Do you tend to procrastinate?</span>
+                  <button type="button" data-value="yes">Yes</button>
+                  <button type="button" data-value="no">No</button>
+                  <input type="hidden" id="is_procrastinator" />
+                </div>
+
+                <div id="procrastinator_yes" class="conditional-row hidden">
+                  <label>
+                    Procrastinator type
+                    <select id="procrastinator_type">
+                      <option value="">Select...</option>
+                      <option>perfectionist</option>
+                      <option>avoidant</option>
+                      <option>deadline-driven</option>
+                      <option>overwhelmed</option>
+                      <option>distraction</option>
+                      <option>lack-of-motivation</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div id="procrastinator_no" class="conditional-row hidden">
+                  <div class="button-group" id="has_trouble_finishing_group">
+                    <span class="label-inline">Do you have trouble finishing?</span>
+                    <button type="button" data-value="Yes, sometimes">Yes, sometimes</button>
+                    <button type="button" data-value="No, I'm consistent">No, I'm consistent</button>
+                    <input type="hidden" id="has_trouble_finishing" />
+                  </div>
+                </div>
+
+                <div class="two-col">
+                  <label>
+                    Preferred work style
+                    <select id="preferred_work_style">
+                      <option value="">Select...</option>
+                      <option>Short, focused bursts</option>
+                      <option>Long, deep sessions</option>
+                      <option>A mix of both</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="two-col">
+                  <label>
+                    Most productive time of day
+                    <select id="most_productive_time">
+                      <option value="">Select...</option>
+                      <option>Early Morning</option>
+                      <option>Morning</option>
+                      <option>Afternoon</option>
+                      <option>Evening</option>
+                      <option>Late Night</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    Preferred study method
+                    <input
+                      type="text"
+                      id="preferred_study_method"
+                      placeholder="e.g., 25-min study, 5-min break"
+                    />
+                  </label>
+                </div>
+              </fieldset>
+
+              <!-- Work-Life Balance -->
+              <fieldset>
+                <legend>Work‑Life Balance</legend>
+                <div class="two-col">
+                  <label>
+                    Weekly personal (no‑work) hours
+                    <input
+                      type="number"
+                      id="weekly_personal_time"
+                      min="0"
+                      max="80"
+                      step="0.5"
+                      placeholder="e.g., 10"
+                    />
+                  </label>
+                  <label>
+                    Weekly review hours
+                    <input
+                      type="number"
+                      id="weekly_review_hours"
+                      min="0"
+                      max="40"
+                      step="0.5"
+                      placeholder="e.g., 3"
+                    />
+                  </label>
+                </div>
+              </fieldset>
+
+              <!-- Goals Hierarchy -->
+              <fieldset>
+                <legend>Goals Hierarchy</legend>
+                <p class="hint">
+                  Set your goals across different timeframes. The AI will help you break them down and organize your tasks accordingly.
+                </p>
+                <div id="onboardingGoalsHierarchy" class="goals-hierarchy">
+                  <!-- Goals will be rendered here by JS -->
+                </div>
+              </fieldset>
+
+              <div class="wizard-actions">
+                <button type="button" id="saveProfileBtn" class="btn btn-primary">
+                  Save profile &amp; continue
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Step 2: Goal Canvas -->
+          <div class="wizard-step" data-step="2">
+            <h2>Step 2: Set Your Goals</h2>
+            <p class="step-description">
+              Create your goal hierarchy by adding long-term goals. Choose your preferred timeframe, and AI will suggest breakdown goals automatically.
+            </p>
+
+            <div class="goal-canvas-container">
+              <div id="goalCanvas" class="goal-canvas">
+                <!-- Canvas sections and nodes will be rendered here -->
+                <button id="approveAllGhostsBtn" class="btn-approve-all-ghosts hidden">
+                  Approve All AI Suggestions
+                </button>
+              </div>
+              <div id="goalEditorPanel" class="goal-editor-panel hidden">
+                <h3>Edit Goal</h3>
+                <textarea id="goalEditorText" placeholder="Enter your goal..." rows="4"></textarea>
+                <div class="goal-editor-actions">
+                  <button id="saveGoalBtn" class="btn btn-primary">Save</button>
+                  <button id="confirmGhostBtn" class="btn btn-success hidden">Confirm Suggestion</button>
+                  <button id="deleteGoalBtn" class="btn btn-ghost">Delete</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="wizard-actions wizard-actions-bottom">
+              <button type="button" id="backToProfileBtn" class="btn btn-ghost">Back</button>
+              <button type="button" id="finishGoalsBtn" class="btn btn-primary">Finish</button>
+            </div>
+          </div>
+
+          <!-- Step 3: Confirmation -->
+          <div class="wizard-step" data-step="3">
+            <h2>Step 3: Confirm your plan</h2>
+            <p class="step-description">
+              Here's how I'm ranking your tasks. I'll schedule them so everything is completed
+              <strong>before</strong> the deadline.
+            </p>
+
+            <div id="rankedTaskPreview" class="ranked-preview">
+              <!-- Ranked tasks inserted here -->
+            </div>
+
+            <p class="confirm-text">
+              Thank you, I have all the information.
+              <br />
+              <strong>Are you ready for me to create your personalized schedule?</strong>
+            </p>
+
+            <div class="confirm-actions">
+              <button id="confirmGenerateBtn" class="btn btn-success">
+                Yes ✅
+              </button>
+              <button id="editTasksBtn" class="btn btn-ghost">
+                Wait a sec... 🤔
+              </button>
+            </div>
+          </div>
+        </section>
+        </div>
+      </div>
+      </main>
+
+      <!-- Countdown overlay for deadline-driven procrastinators -->
+    <div id="countdownOverlay" class="countdown-overlay hidden">
+      <div class="countdown-card">
+        <h3>Focus countdown</h3>
+        <p id="countdownTaskName"></p>
+        <div id="countdownTimer" class="countdown-timer">25:00</div>
+        <button id="stopCountdownBtn" class="btn btn-secondary">Stop</button>
+      </div>
+    </div>
+
+      <!-- Settings Panel -->
+      <div id="settingsPanel" class="settings-panel hidden">
+        <div class="settings-overlay"></div>
+        <div class="settings-content">
+          <div class="settings-header">
+            <h2>Settings</h2>
+            <button id="closeSettingsBtn" class="btn-icon" title="Close">×</button>
+          </div>
+          <div class="settings-tabs">
+            <button class="settings-tab active" data-tab="profile">Profile</button>
+            <button class="settings-tab" data-tab="goals">Goals</button>
+            <button class="settings-tab" data-tab="blocking">Website Blocking</button>
+            <button class="settings-tab" data-tab="reflections">Reflections</button>
+          </div>
+          
+          <!-- Profile Settings -->
+          <div id="settingsProfile" class="settings-section active">
+            <h3>Edit Profile</h3>
+            <form id="profileEditForm" class="settings-form">
+              <!-- Profile fields from original onboarding will be moved here -->
+              <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="profileEditName" />
+              </div>
+              <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="profileEditEmail" disabled />
+                <small class="form-hint">Email cannot be changed</small>
+              </div>
+              <button type="submit" class="btn btn-primary">Save Changes</button>
+            </form>
+          </div>
+
+          <!-- Goals Settings -->
+          <div id="settingsGoals" class="settings-section">
+            <h3>Goals Hierarchy</h3>
+            <div id="goalsHierarchy" class="goals-hierarchy">
+              <!-- Goals hierarchy will be rendered here -->
+            </div>
+          </div>
+
+          <!-- Blocking Settings -->
+          <div id="settingsBlocking" class="settings-section">
+            <h3>Website Blocking Rules</h3>
+            <p class="settings-description">Configure rules to block or redirect distracting websites.</p>
+            <div id="blockingRulesList" class="blocking-rules-list">
+              <!-- Blocking rules will be rendered here -->
+            </div>
+            <button id="addBlockingRuleBtn" class="btn btn-secondary">Add Rule</button>
+          </div>
+
+          <!-- Reflections Settings -->
+          <div id="settingsReflections" class="settings-section">
+            <h3>Reflection History</h3>
+            <div id="reflectionsList" class="reflections-list">
+              <!-- Reflection history will be rendered here -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Task Editor Modal -->
+      <div id="taskEditorModal" class="modal hidden">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 id="taskEditorTitle">Add Task</h2>
+            <button id="closeTaskEditorBtn" class="btn-icon" title="Close">×</button>
+          </div>
+          <form id="taskEditorForm" class="modal-form">
+            <div class="form-group">
+              <label for="taskEditor_name">Task description</label>
+              <input type="text" id="taskEditor_name" required />
+            </div>
+
+            <div class="form-group">
+              <label>Is this task urgent? (needs to be done soon)</label>
+              <div class="urgency-buttons" id="taskEditor_urgent_group">
+                <button type="button" data-value="yes" class="urgency-btn">Yes, it's urgent</button>
+                <button type="button" data-value="no" class="urgency-btn">No, not urgent</button>
+                <input type="hidden" id="taskEditor_urgent" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Is this task important? (significant impact on your goals)</label>
+              <div class="importance-buttons" id="taskEditor_important_group">
+                <button type="button" data-value="yes" class="importance-btn">Yes, it's important</button>
+                <button type="button" data-value="no" class="importance-btn">No, not important</button>
+                <input type="hidden" id="taskEditor_important" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="taskEditor_category">Category</label>
+              <select id="taskEditor_category" required>
+                <option value="">Select...</option>
+                <option value="study">Study</option>
+                <option value="project">Project</option>
+                <option value="chores">Chores</option>
+                <option value="personal">Personal</option>
+                <option value="social">Social</option>
+              </select>
+            </div>
+
+            <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div>
+                <label for="taskEditor_deadline">Deadline (date)</label>
+                <input type="date" id="taskEditor_deadline" required />
+              </div>
+              <div>
+                <label for="taskEditor_deadline_time">Deadline time</label>
+                <input type="text" id="taskEditor_deadline_time" placeholder="e.g., 23:59 or 14:30" value="23:59" />
+              </div>
+            </div>
+
+            <div class="form-group" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div>
+                <label for="taskEditor_duration">Estimated duration (hours)</label>
+                <input
+                  type="number"
+                  id="taskEditor_duration"
+                  min="0.5"
+                  step="0.5"
+                  placeholder="e.g., 2"
+                  required
+                />
+              </div>
+              <div style="display: flex; align-items: flex-end;">
+                <label class="checkbox-row" style="margin: 0;">
+                  <input type="checkbox" id="taskEditor_computer_required" />
+                  <span>Requires computer?</span>
+                </label>
+              </div>
+            </div>
+
+            <input type="hidden" id="taskEditor_priority" />
+
+            <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;">
+              <button type="button" id="cancelTaskEditorBtn" class="btn btn-ghost">Cancel</button>
+              <button type="submit" class="btn btn-primary">Add Task</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Add Goal Modal -->
+      <div id="addGoalModal" class="modal hidden">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Add Goal</h2>
+            <button id="closeAddGoalBtn" class="btn-icon" title="Close">×</button>
+          </div>
+          <form id="addGoalForm" class="modal-form">
+            <div class="form-group">
+              <label for="addGoal_level">Goal timeframe</label>
+              <select id="addGoal_level" required>
+                <option value="">Select...</option>
+                <option value="lifetime">Lifetime</option>
+                <option value="yearly">Yearly</option>
+                <option value="monthly">Monthly</option>
+                <option value="weekly">Weekly</option>
+                <option value="daily">Daily</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="addGoal_name">Goal description</label>
+              <input type="text" id="addGoal_name" placeholder="Enter your goal..." required />
+            </div>
+            <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;">
+              <button type="button" id="cancelAddGoalBtn" class="btn btn-ghost">Cancel</button>
+              <button type="submit" class="btn btn-primary">Add Goal</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Reflection Modal -->
+      <div id="reflectionModal" class="modal hidden">
+        <div class="modal-overlay"></div>
+        <div class="modal-content modal-content-large">
+          <div class="modal-header">
+            <h2 id="reflectionTitle">Reflection</h2>
+            <button id="closeReflectionBtn" class="btn-icon" title="Close">×</button>
+          </div>
+          <form id="reflectionForm" class="modal-form">
+            <div class="form-group">
+              <label>Reflection</label>
+              <textarea id="reflectionText" rows="12" placeholder="Write your reflection here..."></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Reflection</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Pomodoro Timer Modal -->
+      <div id="pomodoroModal" class="pomodoro-modal hidden">
+        <div class="pomodoro-modal-content">
+          <div class="pomodoro-header">
+            <h2>Focus Timer</h2>
+            <button id="closePomodoroBtn" class="pomodoro-close-btn" title="Close">×</button>
+          </div>
+          <div class="pomodoro-task-info">
+            <p id="pomodoroTaskName" class="pomodoro-task-name"></p>
+            <p id="pomodoroTaskCategory" class="pomodoro-task-category"></p>
+          </div>
+          <div class="pomodoro-timer-display">
+            <div id="pomodoroTimer" class="pomodoro-timer">25:00</div>
+            <div class="pomodoro-status" id="pomodoroStatus">Ready to start</div>
+          </div>
+          <div class="pomodoro-controls">
+            <button id="pomodoroStartBtn" class="btn btn-primary pomodoro-btn">Start</button>
+            <button id="pomodoroPauseBtn" class="btn btn-secondary pomodoro-btn hidden">Pause</button>
+            <button id="pomodoroResetBtn" class="btn btn-secondary pomodoro-btn">Reset</button>
+          </div>
+          <div class="pomodoro-progress">
+            <div id="pomodoroProgressBar" class="pomodoro-progress-bar">
+              <div id="pomodoroProgressFill" class="pomodoro-progress-fill"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>
