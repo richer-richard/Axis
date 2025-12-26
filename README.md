@@ -1,6 +1,6 @@
-# PlanWise – AI Student Planner
+# Axis – AI Student Planner
 
-PlanWise is a web-based student planning application that generates a personalized, time-blocked schedule based on a user’s tasks, deadlines, and daily routine. It is designed to help students manage their workload efficiently and reduce procrastination.
+Axis is a web-based student planning application that generates a personalized, time-blocked schedule based on a user’s tasks, deadlines, and daily routine. It is designed to help students manage their workload efficiently and reduce procrastination.
 
 ## Features
 
