@@ -3631,9 +3631,12 @@ textarea {
   text-overflow: ellipsis;
 }
 
+/* Mobile Responsiveness - Tablet and Below */
 @media (max-width: 1080px) {
   .app-main {
     grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 16px;
   }
 
   .sidebar {
@@ -3643,22 +3646,303 @@ textarea {
   .calendar-section {
     order: 1;
   }
+  
+  .panel {
+    padding: 14px;
+  }
 }
 
+/* Mobile Responsiveness - Mobile */
 @media (max-width: 720px) {
+  html {
+    font-size: 15px; /* Slightly smaller base font for mobile */
+  }
+
   .app-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    gap: 12px;
+  }
+
+  .logo {
+    flex-shrink: 0;
+  }
+
+  .logo-text {
+    font-size: 1rem;
+  }
+
+  .logo-text-dashboard {
+    display: none; /* Hide "Dashboard" text on mobile */
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .btn-icon {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 8px;
+    touch-action: manipulation; /* Improve touch responsiveness */
+  }
+
+  .app-main {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .panel {
+    padding: 12px;
+    border-radius: var(--radius-md);
+  }
+
+  .panel-header h2 {
+    font-size: 0.95rem;
+  }
+
+  .panel-subtitle {
+    font-size: 0.75rem;
   }
 
   .calendar-header {
     flex-direction: column;
     align-items: flex-start;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .calendar-controls {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .btn-toggle-view {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 12px;
+    font-size: 0.85rem;
   }
 
   .calendar-grid {
-    font-size: 0.68rem;
+    font-size: 0.65rem;
+  }
+  
+  /* Screen reader only class */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  .btn {
+    padding: 10px 16px;
+    font-size: 0.9rem;
+    min-height: 44px; /* Touch-friendly button size */
+    touch-action: manipulation;
+  }
+
+  .btn-sm {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    min-height: 36px;
+  }
+
+  .modal-content {
+    width: 95%;
+    max-width: 95%;
+    margin: 12px;
+    max-height: calc(100vh - 24px);
+    padding: 16px;
+  }
+
+  .modal-header {
+    padding: 12px 0;
+  }
+
+  .modal-header h2 {
+    font-size: 1.1rem;
+  }
+
+  .form-group {
+    margin-bottom: 16px;
+  }
+
+  .form-group label {
+    font-size: 0.9rem;
+    margin-bottom: 6px;
+  }
+
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="date"],
+  input[type="number"],
+  select,
+  textarea {
+    font-size: 16px; /* Prevents zoom on iOS */
+    padding: 10px 12px;
+    min-height: 44px;
+  }
+
+  textarea {
+    min-height: 100px;
+  }
+
+  .task-item {
+    padding: 12px;
+  }
+
+  .task-item-name {
+    font-size: 0.9rem;
+  }
+
+  .eisenhower-matrix {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .matrix-quadrant {
+    min-height: 150px;
+  }
+
+  .btn-group {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .btn-group button {
+    width: 100%;
+  }
+
+  .two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .wizard-content {
+    padding: 16px;
+  }
+
+  .wizard-step h2 {
+    font-size: 1.3rem;
+  }
+
+  .settings-content {
+    padding: 16px;
+  }
+
+  .settings-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .settings-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .settings-tab {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .toast-container {
+    bottom: 16px;
+    right: 16px;
+    left: 16px;
+    max-width: calc(100vw - 32px);
+  }
+
+  .toast {
+    min-width: auto;
+    max-width: 100%;
+  }
+
+  /* Improve touch targets for interactive elements */
+  button,
+  a,
+  [role="button"],
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Stack calendar controls on mobile */
+  .btn-sync {
+    width: 100%;
+    margin-bottom: 8px;
+  }
+
+  .calendar-controls {
+    width: 100%;
+  }
+}
+
+/* Very small mobile devices */
+@media (max-width: 480px) {
+  html {
+    font-size: 14px;
+  }
+
+  .app-main {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .panel {
+    padding: 10px;
+  }
+
+  .panel-header h2 {
+    font-size: 0.9rem;
+  }
+
+  .hero-title {
+    font-size: 3rem;
+  }
+
+  .hero-subtitle {
+    font-size: 1.2rem;
+  }
+
+  .modal-content {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    border-radius: 0;
+    max-height: 100vh;
+    height: 100vh;
+  }
+}
+
+/* Landscape orientation adjustments */
+@media (max-width: 720px) and (orientation: landscape) {
+  .app-main {
+    grid-template-columns: minmax(280px, 360px) minmax(0, 2fr);
+    gap: 16px;
+  }
+
+  .sidebar {
+    order: 1;
+  }
+
+  .calendar-section {
+    order: 2;
+  }
+
+  .panel-goals,
+  .panel-tasks {
+    max-height: 300px;
   }
 }
 
@@ -4347,10 +4631,49 @@ textarea {
   transition: height 0.3s ease;
 }
 
-.weekly-progress-label {
-  font-size: 0.65rem;
-  color: var(--text-muted);
-}
+  .weekly-progress-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+  }
+  
+  /* Screen reader only - for accessibility */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+  
+  /* Keyboard navigation improvements */
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--accent-green);
+    outline-offset: 2px;
+  }
+  
+  /* Skip to main content link */
+  .skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: var(--accent-green);
+    color: white;
+    padding: 8px 16px;
+    text-decoration: none;
+    z-index: 10000;
+  }
+  
+  .skip-link:focus {
+    top: 0;
+  }
 
 .productivity-score {
   display: flex;
