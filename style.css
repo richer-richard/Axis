@@ -1356,7 +1356,7 @@ body {
 .main-column {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 24px;
   min-height: 0;
 }
 
@@ -1396,6 +1396,7 @@ body {
 .panel-header h2 {
   margin: 0;
   font-size: 1.05rem;
+  font-weight: 500;
 }
 
 .panel-subtitle {
@@ -1848,7 +1849,7 @@ body {
 
 .panel-chat.panel-chat-main {
   max-height: none;
-  flex: 1 1 0;
+  flex: 1.1 1 0;
   min-height: 360px;
 }
 
@@ -2477,7 +2478,7 @@ textarea {
 .calendar-title h2 {
   margin: 0;
   font-size: 1.4rem;
-  font-weight: 400;
+  font-weight: 500;
   color: var(--text-main);
 }
 
@@ -2662,10 +2663,10 @@ textarea {
 
 .calendar-task-block {
   position: absolute;
-  inset: 4px 4px;
-  border-radius: 10px;
-  padding: 3px 5px;
-  font-size: 0.68rem;
+  inset: 6px 6px;
+  border-radius: 12px;
+  padding: 4px 7px;
+  font-size: 0.7rem;
   overflow: hidden;
   cursor: move;
   display: flex;
