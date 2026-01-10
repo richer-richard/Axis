@@ -763,7 +763,25 @@ function initPwaSupport() {
     });
   }
 
+  function removeSkipToMainLinks() {
+    try {
+      document
+        .querySelectorAll(
+          [
+            'a[href="#main-content"]',
+            'a[href="#mainContent"]',
+            "a.skip-link",
+            "a.skip-to-main",
+            "#skip-to-main",
+            "#skipToMain",
+          ].join(","),
+        )
+        .forEach((el) => el.remove());
+    } catch {}
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
+    removeSkipToMainLinks();
     axisUpdateOfflineIndicator();
     axisUpdateInstallUi();
     axisFlushQueue();
