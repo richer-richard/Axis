@@ -1,7 +1,7 @@
 /* global self */
 
-const STATIC_CACHE = "axis-static-v1";
-const RUNTIME_CACHE = "axis-runtime-v1";
+const STATIC_CACHE = "axis-static-v2";
+const RUNTIME_CACHE = "axis-runtime-v2";
 const DB_NAME = "axis_pwa";
 const DB_VERSION = 1;
 
@@ -183,4 +183,3 @@ self.addEventListener("sync", (event) => {
     event.waitUntil(flushQueue());
   }
 });
-
