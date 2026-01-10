@@ -1111,7 +1111,7 @@ function syncLockedDisplayNameInput() {
 }
 
 function applyOnboardingModeUI() {
-  const stepsToHide = ["2", "3"];
+  const stepsToHide = ["3", "4"];
   stepsToHide.forEach((step) => {
     const stepEl = document.querySelector(`.wizard-step[data-step="${step}"]`);
     const indicatorEl = document.querySelector(
@@ -1134,7 +1134,7 @@ function setStep(step) {
   if (!wizard) return;
   
   // In personalization-only mode, force step 1 and hide later steps
-  if (onboardingMode === "personalization-only" && step && step !== 1) {
+  if (onboardingMode === "personalization-only" && step && !["1", "2"].includes(String(step))) {
     step = 1;
   }
   applyOnboardingModeUI();
@@ -2463,10 +2463,10 @@ function initEditLearningPrefsButton() {
     btn.addEventListener("click", () => {
       // Close settings panel
       $("#settingsPanel")?.classList.add("hidden");
-      // Open onboarding wizard at step 1
+      // Open onboarding wizard at Preferences
       restoreProfileToForm();
       onboardingMode = null;
-      setStep(1);
+      setStep(2);
     });
   }
 }
@@ -3041,41 +3041,62 @@ function initProfileInteractions() {
     });
   });
 
-  // Save profile button - ensure it's enabled and has event listener
-  const saveProfileBtn = $("#saveProfileBtn");
-  if (saveProfileBtn) {
-    // Ensure button is enabled
-    saveProfileBtn.disabled = false;
-    saveProfileBtn.removeAttribute("disabled");
-    
-    // Remove old listener if exists (clone to remove all listeners)
-    const newBtn = saveProfileBtn.cloneNode(true);
-    saveProfileBtn.parentNode?.replaceChild(newBtn, saveProfileBtn);
-    
-    // Attach fresh event listener
+  const profileContinueBtn = $("#wizardProfileContinueBtn");
+  if (profileContinueBtn) {
+    const newBtn = profileContinueBtn.cloneNode(true);
+    profileContinueBtn.parentNode?.replaceChild(newBtn, profileContinueBtn);
+
     newBtn.addEventListener("click", (e) => {
       e.preventDefault();
       const profile = readProfileFromForm();
       if (!profile) return;
+
       state.profile = profile;
-      // Read goals from onboarding form
-      readGoalsFromOnboardingForm();
-      
-      // Set first reflection due date for new users (7 days from now)
+
       if (!state.firstReflectionDueDate) {
         const dueDate = new Date();
         dueDate.setDate(dueDate.getDate() + 7);
         state.firstReflectionDueDate = dueDate.toISOString();
       }
-      
+
       saveUserData();
-      showToast("Profile saved.");
-      // Clear personalization-only mode to allow navigation to goal canvas
+      showToast("Saved. Next: preferences.");
+      setStep(2);
+    });
+  }
+
+  const preferencesBackBtn = $("#wizardPreferencesBackBtn");
+  if (preferencesBackBtn) {
+    const newBtn = preferencesBackBtn.cloneNode(true);
+    preferencesBackBtn.parentNode?.replaceChild(newBtn, preferencesBackBtn);
+    newBtn.addEventListener("click", () => setStep(1));
+  }
+
+  const preferencesContinueBtn = $("#wizardPreferencesContinueBtn");
+  if (preferencesContinueBtn) {
+    const newBtn = preferencesContinueBtn.cloneNode(true);
+    preferencesContinueBtn.parentNode?.replaceChild(newBtn, preferencesContinueBtn);
+
+    newBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const profile = readProfileFromForm();
+      if (!profile) return;
+
+      state.profile = profile;
+
+      if (!state.firstReflectionDueDate) {
+        const dueDate = new Date();
+        dueDate.setDate(dueDate.getDate() + 7);
+        state.firstReflectionDueDate = dueDate.toISOString();
+      }
+
+      saveUserData();
+      showToast("Preferences saved.");
+
       onboardingMode = null;
       applyOnboardingModeUI();
-      // Go to goal canvas after profile is saved
-      setStep(2);
-      // Initialize canvas after a brief delay to ensure DOM is ready
+      setStep(3);
+
       setTimeout(() => {
         initGoalCanvas();
       }, 100);
@@ -3443,7 +3464,7 @@ function initTaskForm() {
       }
       rankTasks();
       renderRankedPreview();
-      setStep(3);
+      setStep(4);
     });
   }
 
@@ -4837,8 +4858,8 @@ function initGoalCanvas() {
   }
   
   // Ensure canvas is visible
-  const step2 = document.querySelector(".wizard-step[data-step='2']");
-  if (step2 && !step2.classList.contains("active")) {
+  const step3 = document.querySelector(".wizard-step[data-step='3']");
+  if (step3 && !step3.classList.contains("active")) {
     console.error("Goal canvas step is not active");
     return;
   }
@@ -4948,7 +4969,9 @@ function initGoalCanvas() {
   // Finish goals button
   const finishGoalsBtn = $("#finishGoalsBtn");
   if (finishGoalsBtn) {
-    finishGoalsBtn.addEventListener("click", () => {
+    const newBtn = finishGoalsBtn.cloneNode(true);
+    finishGoalsBtn.parentNode?.replaceChild(newBtn, finishGoalsBtn);
+    newBtn.addEventListener("click", () => {
       // Goals are already saved automatically via saveGoalCanvas()
       // Just finish onboarding
       onboardingMode = null;
@@ -4961,10 +4984,12 @@ function initGoalCanvas() {
   }
   
   // Back button
-  const backToProfileBtn = $("#backToProfileBtn");
-  if (backToProfileBtn) {
-    backToProfileBtn.addEventListener("click", () => {
-      setStep(1);
+  const backToPreferencesBtn = $("#backToPreferencesBtn");
+  if (backToPreferencesBtn) {
+    const newBtn = backToPreferencesBtn.cloneNode(true);
+    backToPreferencesBtn.parentNode?.replaceChild(newBtn, backToPreferencesBtn);
+    newBtn.addEventListener("click", () => {
+      setStep(2);
     });
   }
 }
@@ -6435,11 +6460,11 @@ function renderRankedPreview() {
 
 function initWizardButtons() {
   // Remove existing listeners by cloning and replacing elements
-  const backToProfileBtn = $("#backToProfileBtn");
-  if (backToProfileBtn) {
-    const newBtn = backToProfileBtn.cloneNode(true);
-    backToProfileBtn.parentNode?.replaceChild(newBtn, backToProfileBtn);
-    newBtn.addEventListener("click", () => setStep(1));
+  const backToPreferencesBtn = $("#backToPreferencesBtn");
+  if (backToPreferencesBtn) {
+    const newBtn = backToPreferencesBtn.cloneNode(true);
+    backToPreferencesBtn.parentNode?.replaceChild(newBtn, backToPreferencesBtn);
+    newBtn.addEventListener("click", () => setStep(2));
   }
   
   const goToConfirmBtn = $("#goToConfirmBtn");
@@ -6452,7 +6477,7 @@ function initWizardButtons() {
       }
       rankTasks();
       renderRankedPreview();
-      setStep(3);
+      setStep(4);
     });
   }
   
@@ -6464,7 +6489,9 @@ function initWizardButtons() {
       if (onboardingMode === "personalization-only") {
         return; // Block returning to tasks during personalization-only signup
       }
-      setStep(2);
+      setStep(null);
+      document.getElementById("addTaskBtn")?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      showToast("Edit tasks, then click Plan Tasks again.");
     });
   }
 
