@@ -3943,10 +3943,17 @@ textarea {
 
 .footer-content {
   display: grid;
-  grid-template-columns: 2fr repeat(3, 1fr);
+  grid-template-columns: minmax(260px, 1fr) auto;
   gap: 3rem;
   max-width: 1200px;
   margin: 0 auto 2rem;
+  align-items: start;
+}
+
+.footer-content .footer-nav {
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 4rem;
 }
 
 @media (max-width: 768px) {
@@ -3954,6 +3961,10 @@ textarea {
     grid-template-columns: 1fr;
     gap: 2rem;
     text-align: center;
+  }
+
+  .footer-content .footer-nav {
+    justify-content: center;
   }
 }
 
