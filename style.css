@@ -450,7 +450,8 @@ body {
 /* Dashboard */
 .dashboard {
   min-height: 100vh;
-  display: block;
+  display: flex;
+  flex-direction: column;
 }
 
 .dashboard.hidden {
@@ -1340,19 +1341,23 @@ body {
   grid-template-columns: minmax(320px, 420px) minmax(0, 2fr);
   gap: 24px;
   padding: 22px 28px 32px;
-  align-items: start;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  min-height: 0;
 }
 
 .main-column {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  min-height: 0;
 }
 
 .dashboard .panel {
@@ -1856,8 +1861,8 @@ body {
 
 .panel-chat.panel-chat-main {
   max-height: none;
-  flex: 1.1 1 0;
-  min-height: 360px;
+  flex: 1 1 0;
+  min-height: 280px;
 }
 
 .chat-window {
@@ -2469,8 +2474,8 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  flex: 1 1 0;
-  min-height: 0;
+  flex: 1.7 1 0;
+  min-height: 420px;
   backdrop-filter: var(--crystal-blur);
   -webkit-backdrop-filter: var(--crystal-blur);
 }
@@ -2532,6 +2537,8 @@ textarea {
 
 .calendar-controls {
   display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
   background: var(--crystal-bg);
   padding: 3px;
   border-radius: 999px;
@@ -2539,6 +2546,22 @@ textarea {
   gap: 4px;
   backdrop-filter: var(--crystal-blur-light);
   -webkit-backdrop-filter: var(--crystal-blur-light);
+}
+
+.calendar-date-input {
+  border-radius: 999px;
+  border: 1px solid var(--crystal-border);
+  background: transparent;
+  color: var(--text-main);
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  height: 30px;
+}
+
+.calendar-date-input:focus {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: var(--accent-green-dark);
 }
 
 .btn-toggle-view {

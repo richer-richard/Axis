@@ -2615,6 +2615,7 @@ function initDashboard() {
   initWizardButtons();
   initChatbot();
   initCalendarViewToggle();
+  initCalendarNavigation();
   initSmartRescheduling();
   initGoals();
   initDailyHabits();
@@ -7253,22 +7254,161 @@ function parseWeekendSchedule(text) {
 
 // ---------- Calendar Rendering ----------
 
+const AXIS_CALENDAR_VIEW_STORAGE_KEY = "axis_calendar_view";
+const AXIS_CALENDAR_ANCHOR_STORAGE_KEY = "axis_calendar_anchor_date";
+
 let currentCalendarView = "daily";
+let calendarAnchorDate = null;
+
+function normalizeCalendarView(view) {
+  const v = String(view || "").trim().toLowerCase();
+  if (v === "daily" || v === "weekly" || v === "monthly") return v;
+  return "";
+}
+
+function loadCalendarPreferences() {
+  try {
+    const storedView = normalizeCalendarView(localStorage.getItem(AXIS_CALENDAR_VIEW_STORAGE_KEY));
+    if (storedView) currentCalendarView = storedView;
+  } catch {}
+
+  try {
+    const storedAnchor = String(localStorage.getItem(AXIS_CALENDAR_ANCHOR_STORAGE_KEY) || "").trim();
+    if (storedAnchor && /^\d{4}-\d{2}-\d{2}$/.test(storedAnchor)) {
+      const d = new Date(`${storedAnchor}T00:00:00`);
+      if (!Number.isNaN(d.getTime())) {
+        calendarAnchorDate = d;
+      }
+    }
+  } catch {}
+}
+
+function persistCalendarPreferences() {
+  try {
+    localStorage.setItem(AXIS_CALENDAR_VIEW_STORAGE_KEY, currentCalendarView);
+  } catch {}
+
+  try {
+    if (calendarAnchorDate instanceof Date && !Number.isNaN(calendarAnchorDate.getTime())) {
+      localStorage.setItem(AXIS_CALENDAR_ANCHOR_STORAGE_KEY, localDateKey(calendarAnchorDate));
+    }
+  } catch {}
+}
+
+function syncCalendarViewButtons() {
+  $all(".btn-toggle-view").forEach((btn) => {
+    const view = normalizeCalendarView(btn.dataset.view);
+    const active = Boolean(view && view === currentCalendarView);
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function setCalendarView(view) {
+  const next = normalizeCalendarView(view) || "daily";
+  currentCalendarView = next;
+  persistCalendarPreferences();
+  syncCalendarViewButtons();
+  renderSchedule();
+}
+
+function setCalendarAnchorDate(date, options = {}) {
+  const { render = true } = options || {};
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return;
+  calendarAnchorDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  persistCalendarPreferences();
+  syncCalendarJumpToDateInput();
+  if (render) renderSchedule();
+}
+
+function syncCalendarJumpToDateInput() {
+  const input = document.getElementById("calendarJumpToDate");
+  if (!input) return;
+  const anchor = calendarAnchorDate instanceof Date && !Number.isNaN(calendarAnchorDate.getTime()) ? calendarAnchorDate : new Date();
+  input.value = localDateKey(anchor);
+}
+
+function updateCalendarSubtitle(text) {
+  const el = document.getElementById("calendarSubtitle");
+  if (!el) return;
+  el.textContent = String(text || "").trim();
+}
+
+function startOfWeekMonday(date) {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = d.getDay(); // 0=Sun..6=Sat
+  const mondayOffset = (day + 6) % 7; // 0 when Monday
+  d.setDate(d.getDate() - mondayOffset);
+  return d;
+}
 
 function initCalendarViewToggle() {
+  loadCalendarPreferences();
+  syncCalendarViewButtons();
+
   // Remove existing listeners by cloning and replacing elements
   $all(".btn-toggle-view").forEach((btn) => {
     const newBtn = btn.cloneNode(true);
     btn.parentNode?.replaceChild(newBtn, btn);
     newBtn.addEventListener("click", () => {
       const view = newBtn.dataset.view;
-      currentCalendarView = view;
-      $all(".btn-toggle-view").forEach((b) =>
-        b.classList.toggle("active", b.dataset.view === view),
-      );
-      renderSchedule();
+      setCalendarView(view);
     });
   });
+}
+
+function initCalendarNavigation() {
+  loadCalendarPreferences();
+  syncCalendarJumpToDateInput();
+
+  const prev = document.getElementById("calendarPrevBtn");
+  const next = document.getElementById("calendarNextBtn");
+  const today = document.getElementById("calendarTodayBtn");
+  const jump = document.getElementById("calendarJumpToDate");
+
+  const wire = (el, handler) => {
+    if (!el) return;
+    const clone = el.cloneNode(true);
+    el.parentNode?.replaceChild(clone, el);
+    clone.addEventListener("click", handler);
+  };
+
+  wire(prev, () => {
+    const anchor = calendarAnchorDate instanceof Date && !Number.isNaN(calendarAnchorDate.getTime()) ? new Date(calendarAnchorDate) : new Date();
+    if (currentCalendarView === "weekly") {
+      anchor.setDate(anchor.getDate() - 7);
+    } else if (currentCalendarView === "monthly") {
+      anchor.setMonth(anchor.getMonth() - 1, 1);
+    } else {
+      anchor.setDate(anchor.getDate() - 1);
+    }
+    setCalendarAnchorDate(anchor);
+  });
+
+  wire(next, () => {
+    const anchor = calendarAnchorDate instanceof Date && !Number.isNaN(calendarAnchorDate.getTime()) ? new Date(calendarAnchorDate) : new Date();
+    if (currentCalendarView === "weekly") {
+      anchor.setDate(anchor.getDate() + 7);
+    } else if (currentCalendarView === "monthly") {
+      anchor.setMonth(anchor.getMonth() + 1, 1);
+    } else {
+      anchor.setDate(anchor.getDate() + 1);
+    }
+    setCalendarAnchorDate(anchor);
+  });
+
+  wire(today, () => setCalendarAnchorDate(new Date()));
+
+  if (jump && !jump.dataset.initialized) {
+    jump.dataset.initialized = "true";
+    jump.addEventListener("change", () => {
+      const value = String(jump.value || "").trim();
+      if (!value) return;
+      const d = new Date(`${value}T00:00:00`);
+      if (Number.isNaN(d.getTime())) return;
+      setCalendarAnchorDate(d);
+    });
+  }
 }
 
 // ---------- Smart Rescheduling (Phase 2C) ----------
@@ -7634,6 +7774,10 @@ function renderSchedule() {
   if (!container) return;
   clearSkeleton(container);
 
+  const schedule = [...(state.schedule || [])];
+  const fixed = [...(state.fixedBlocks || [])];
+  const allBlocks = [...fixed, ...schedule].sort((a, b) => a.start.localeCompare(b.start));
+
   if ((!state.schedule || state.schedule.length === 0) &&
       (!state.fixedBlocks || state.fixedBlocks.length === 0)) {
     const hasTasks = (state.tasks || []).some((t) => !t.completed);
@@ -7671,17 +7815,113 @@ function renderSchedule() {
     return;
   }
 
+  // Initialize calendar anchor when not yet set so the date picker matches the rendered view.
+  const isValidAnchor =
+    calendarAnchorDate instanceof Date && !Number.isNaN(calendarAnchorDate.getTime());
+  if (!isValidAnchor) {
+    const today = new Date();
+    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+    const hasBlocksOnDay = (date) => {
+      const key = localDateKey(date);
+      if (!key) return false;
+      return allBlocks.some((b) => localDateKey(new Date(b.start)) === key);
+    };
+
+    const hasBlocksInWeek = (weekStart) => {
+      const start = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate());
+      const end = new Date(start.getTime());
+      end.setDate(start.getDate() + 7);
+      return allBlocks.some((b) => {
+        const d = new Date(b.start);
+        return d >= start && d < end;
+      });
+    };
+
+    const hasBlocksInMonth = (year, month) =>
+      allBlocks.some((b) => {
+        const d = new Date(b.start);
+        return d.getFullYear() === year && d.getMonth() === month;
+      });
+
+    let initialAnchor = todayMidnight;
+    if (currentCalendarView === "daily") {
+      if (!hasBlocksOnDay(todayMidnight) && allBlocks.length) {
+        const first = new Date(allBlocks[0].start);
+        initialAnchor = new Date(first.getFullYear(), first.getMonth(), first.getDate());
+      }
+    } else if (currentCalendarView === "weekly") {
+      const weekStart = startOfWeekMonday(todayMidnight);
+      if (!hasBlocksInWeek(weekStart) && allBlocks.length) {
+        const first = new Date(allBlocks[0].start);
+        initialAnchor = new Date(first.getFullYear(), first.getMonth(), first.getDate());
+      }
+    } else if (currentCalendarView === "monthly") {
+      if (!hasBlocksInMonth(todayMidnight.getFullYear(), todayMidnight.getMonth()) && allBlocks.length) {
+        const first = new Date(allBlocks[0].start);
+        initialAnchor = new Date(first.getFullYear(), first.getMonth(), first.getDate());
+      }
+    }
+
+    setCalendarAnchorDate(initialAnchor, { render: false });
+  }
+
+  // Update subtitle to reflect current view range.
+  try {
+    const anchor =
+      calendarAnchorDate instanceof Date && !Number.isNaN(calendarAnchorDate.getTime())
+        ? calendarAnchorDate
+        : new Date();
+
+    const countBlocksInRange = (start, endExclusive) => {
+      let taskBlocks = 0;
+      let fixedBlocksCount = 0;
+      for (const b of allBlocks) {
+        const d = new Date(b.start);
+        if (d < start || d >= endExclusive) continue;
+        if (b.kind === "fixed") fixedBlocksCount += 1;
+        else taskBlocks += 1;
+      }
+      return { taskBlocks, fixedBlocksCount };
+    };
+
+    if (currentCalendarView === "daily") {
+      const start = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+      const end = new Date(start.getTime());
+      end.setDate(start.getDate() + 1);
+      const counts = countBlocksInRange(start, end);
+      const label = start.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+      updateCalendarSubtitle(`${label} · ${counts.taskBlocks} tasks · ${counts.fixedBlocksCount} routines`);
+    } else if (currentCalendarView === "weekly") {
+      const start = startOfWeekMonday(anchor);
+      const end = new Date(start.getTime());
+      end.setDate(start.getDate() + 7);
+      const counts = countBlocksInRange(start, end);
+      const rangeStart = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      const rangeEndDate = new Date(end.getTime());
+      rangeEndDate.setDate(end.getDate() - 1);
+      const rangeEnd = rangeEndDate.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      updateCalendarSubtitle(`${rangeStart} – ${rangeEnd} · ${counts.taskBlocks} tasks · ${counts.fixedBlocksCount} routines`);
+    } else if (currentCalendarView === "monthly") {
+      const start = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
+      const end = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1);
+      const counts = countBlocksInRange(start, end);
+      const label = start.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+      updateCalendarSubtitle(`${label} · ${counts.taskBlocks} tasks · ${counts.fixedBlocksCount} routines`);
+    }
+  } catch {}
+
   if (currentCalendarView === "monthly") {
-    renderMonthlyView(container);
+    renderMonthlyView(container, allBlocks);
   } else {
-    renderTimeGridView(container, currentCalendarView);
+    renderTimeGridView(container, currentCalendarView, allBlocks);
   }
 }
 
-function renderTimeGridView(container, view) {
-  const schedule = [...(state.schedule || [])];
-  const fixed = [...(state.fixedBlocks || [])];
-  const allBlocks = [...fixed, ...schedule].sort((a, b) => a.start.localeCompare(b.start));
+function renderTimeGridView(container, view, allBlocksInput) {
+  const allBlocks = Array.isArray(allBlocksInput)
+    ? allBlocksInput
+    : [...(state.fixedBlocks || []), ...(state.schedule || [])].sort((a, b) => a.start.localeCompare(b.start));
 
   // Guard against empty schedule
   if (allBlocks.length === 0) {
@@ -7735,26 +7975,14 @@ function renderTimeGridView(container, view) {
   emptyHeader.textContent = "";
   headerRow.appendChild(emptyHeader);
 
-  // For daily view, show today (or first day with tasks if today has none)
-  // For weekly view, start from the first scheduled task's day
-  let base;
-  if (view === "daily") {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    // Check if today has any tasks
-    const todayStr = today.toISOString().slice(0, 10);
-    const hasTodayTasks = allBlocks.some(block => block.start.startsWith(todayStr));
-    
-    if (hasTodayTasks) {
-      base = today;
-    } else {
-      // Use the first scheduled task's day
-  const startDate = new Date(allBlocks[0].start);
-      base = new Date(startDate.toISOString().slice(0, 10) + "T00:00:00");
-    }
-  } else {
-    const startDate = new Date(allBlocks[0].start);
-    base = new Date(startDate.toISOString().slice(0, 10) + "T00:00:00");
+  const anchor =
+    calendarAnchorDate instanceof Date && !Number.isNaN(calendarAnchorDate.getTime())
+      ? calendarAnchorDate
+      : new Date();
+
+  let base = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate());
+  if (view === "weekly") {
+    base = startOfWeekMonday(base);
   }
 
   const daysToRender = view === "daily" ? 1 : 7;
@@ -7774,6 +8002,27 @@ function renderTimeGridView(container, view) {
     } else {
     cell.textContent = `${dayName} ${d.getDate()}`;
     }
+
+    if (view === "weekly") {
+      cell.tabIndex = 0;
+      cell.setAttribute("role", "button");
+      cell.setAttribute(
+        "aria-label",
+        `Open day view for ${d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`,
+      );
+      const openDay = () => {
+        setCalendarAnchorDate(d, { render: false });
+        setCalendarView("daily");
+      };
+      cell.addEventListener("click", openDay);
+      cell.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openDay();
+        }
+      });
+    }
+
     headerRow.appendChild(cell);
   }
 
@@ -7795,7 +8044,7 @@ function renderTimeGridView(container, view) {
       grid.appendChild(timeCell);
 
       for (let dayIdx = 0; dayIdx < daysToRender; dayIdx++) {
-        const dayDate = dayDates[dayIdx].toISOString().slice(0, 10);
+        const dayDate = localDateKey(dayDates[dayIdx]);
         const timeStr = formatMinutesToTime(minutesOfDay);
         const slotStartISO = `${dayDate}T${timeStr}:00`;
         const slotStart = new Date(slotStartISO);
@@ -7839,7 +8088,7 @@ function renderTimeGridView(container, view) {
           
           // For daily view, ensure the block is on the correct day
           if (view === "daily") {
-            const blockDateStr = s.start.slice(0, 10);
+            const blockDateStr = localDateKey(new Date(s.start));
             if (blockDateStr !== dayDate) return false;
           }
           
@@ -7979,62 +8228,122 @@ function renderTimeGridView(container, view) {
 
   inner.appendChild(grid);
   
-  // Add current time line and current day highlighting
+  // Highlight current day in header + grid
   const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
-  const currentHour = today.getHours();
-  const currentMinute = today.getMinutes();
-  const currentMinutesOfDay = currentHour * 60 + currentMinute;
-  
-  // Highlight current day in header
+  const todayStr = localDateKey(today);
+
   dayDates.forEach((dayDate, dayIdx) => {
-    const dayStr = dayDate.toISOString().slice(0, 10);
-    if (dayStr === todayStr) {
-      const headerCell = headerRow.children[dayIdx + 1]; // +1 for time column
-      if (headerCell) {
-        headerCell.classList.add("calendar-header-cell-today");
-      }
-      
-      // Highlight current day column in grid using data-slotDate filter instead of nth-child
-      // The grid structure has time cells and slot cells interleaved, so nth-child won't work correctly
-      $all(".calendar-slot-cell").forEach(cell => {
-        if (cell.dataset.slotDate === todayStr) {
-          cell.classList.add("calendar-slot-cell-today");
-        }
-      });
+    const dayStr = localDateKey(dayDate);
+    if (dayStr !== todayStr) return;
+    const headerCell = headerRow.children[dayIdx + 1]; // +1 for time column
+    headerCell?.classList.add("calendar-header-cell-today");
+  });
+
+  const slotCells = Array.from(grid.querySelectorAll(".calendar-slot-cell"));
+  slotCells.forEach((cell) => {
+    if (cell.dataset.slotDate === todayStr) {
+      cell.classList.add("calendar-slot-cell-today");
     }
   });
-  
-  // Add current time line (only for today and if within visible hours)
-  if (currentMinutesOfDay >= startHour * 60 && currentMinutesOfDay < endHour * 60) {
-    const timeLine = document.createElement("div");
-    timeLine.className = "calendar-current-time-line";
-    const timeLinePosition = ((currentMinutesOfDay - startHour * 60) / 30) * 20; // 20px per 30-min slot
-    timeLine.style.top = `${timeLinePosition}px`;
-    
-    // Find today's column using data-slotDate filter (same approach as highlighting above)
-    // The grid structure has time cells and slot cells interleaved, so nth-child won't work correctly
-    const todaySlots = $all(".calendar-slot-cell").filter(cell => cell.dataset.slotDate === todayStr);
-    if (todaySlots.length > 0) {
-      const firstSlot = todaySlots[0];
-      const slotRect = firstSlot.getBoundingClientRect();
-      const gridRect = grid.getBoundingClientRect();
-      timeLine.style.left = `${slotRect.left - gridRect.left}px`;
-      timeLine.style.width = `${slotRect.width}px`;
-      inner.style.position = "relative";
-      inner.appendChild(timeLine);
-    }
-  }
-  
+
   container.innerHTML = "";
   container.appendChild(inner);
+
+  // Add current time line after layout (only if today is visible)
+  requestAnimationFrame(() => {
+    const now = new Date();
+    const nowDateStr = localDateKey(now);
+    if (!nowDateStr) return;
+    const currentMinutesOfDay = now.getHours() * 60 + now.getMinutes();
+    if (currentMinutesOfDay < startHour * 60 || currentMinutesOfDay >= endHour * 60) return;
+
+    const slotMinutes = Math.floor(currentMinutesOfDay / 30) * 30;
+    const slotStartISO = `${nowDateStr}T${formatMinutesToTime(slotMinutes)}:00`;
+    const slotCell = grid.querySelector(`.calendar-slot-cell[data-slot-time="${slotStartISO}"]`);
+    if (!slotCell) return;
+
+    const cellRect = slotCell.getBoundingClientRect();
+    const innerRect = inner.getBoundingClientRect();
+    const withinSlot = (currentMinutesOfDay - slotMinutes) / 30;
+
+    const timeLine = document.createElement("div");
+    timeLine.className = "calendar-current-time-line";
+    timeLine.style.top = `${cellRect.top - innerRect.top + withinSlot * cellRect.height}px`;
+    timeLine.style.left = `${cellRect.left - innerRect.left}px`;
+    timeLine.style.width = `${cellRect.width}px`;
+    inner.style.position = "relative";
+    inner.appendChild(timeLine);
+  });
+
+  // Auto-scroll once per view+anchor so users land near their schedule.
+  requestAnimationFrame(() => {
+    try {
+      const anchorKey = localDateKey(
+        calendarAnchorDate instanceof Date && !Number.isNaN(calendarAnchorDate.getTime())
+          ? calendarAnchorDate
+          : new Date(),
+      );
+      const viewportKey = `${view}:${anchorKey}`;
+      if (container.dataset.axisCalendarViewportKey === viewportKey) return;
+      container.dataset.axisCalendarViewportKey = viewportKey;
+
+      let targetDateKey = anchorKey;
+      let targetMinutes = 9 * 60;
+
+      if (view === "daily") {
+        const blocks = allBlocks
+          .filter((b) => localDateKey(new Date(b.start)) === anchorKey)
+          .sort((a, b) => a.start.localeCompare(b.start));
+        if (blocks.length) {
+          const first = new Date(blocks[0].start);
+          targetMinutes = first.getHours() * 60 + first.getMinutes();
+        }
+        const now = new Date();
+        const nowKey = localDateKey(now);
+        if (nowKey === anchorKey) {
+          targetMinutes = now.getHours() * 60 + now.getMinutes();
+        }
+      } else if (view === "weekly") {
+        const weekStart = startOfWeekMonday(
+          calendarAnchorDate instanceof Date && !Number.isNaN(calendarAnchorDate.getTime())
+            ? calendarAnchorDate
+            : new Date(),
+        );
+        const weekEnd = new Date(weekStart.getTime());
+        weekEnd.setDate(weekStart.getDate() + 7);
+
+        const now = new Date();
+        if (now >= weekStart && now < weekEnd) {
+          targetDateKey = localDateKey(now);
+          targetMinutes = now.getHours() * 60 + now.getMinutes();
+        } else {
+          const inWeek = allBlocks
+            .filter((b) => {
+              const d = new Date(b.start);
+              return d >= weekStart && d < weekEnd;
+            })
+            .sort((a, b) => a.start.localeCompare(b.start));
+          if (inWeek.length) {
+            const first = new Date(inWeek[0].start);
+            targetDateKey = localDateKey(first);
+            targetMinutes = first.getHours() * 60 + first.getMinutes();
+          }
+        }
+      }
+
+      targetMinutes = Math.max(startHour * 60, Math.min(endHour * 60 - 1, targetMinutes));
+      const slotMinutes = Math.floor(targetMinutes / 30) * 30;
+      const slotStartISO = `${targetDateKey}T${formatMinutesToTime(slotMinutes)}:00`;
+      const slotCell = grid.querySelector(`.calendar-slot-cell[data-slot-time="${slotStartISO}"]`);
+      slotCell?.scrollIntoView({ block: "center", inline: "nearest" });
+    } catch {}
+  });
 }
 
-function renderMonthlyView(container) {
-  const schedule = [
-    ...(state.fixedBlocks || []),
-    ...(state.schedule || []),
-  ].sort((a, b) => a.start.localeCompare(b.start));
+function renderMonthlyView(container, allBlocksInput) {
+  const schedule = Array.isArray(allBlocksInput)
+    ? allBlocksInput
+    : [...(state.fixedBlocks || []), ...(state.schedule || [])].sort((a, b) => a.start.localeCompare(b.start));
 
   // Guard against empty schedule
   if (schedule.length === 0) {
@@ -8052,12 +8361,16 @@ function renderMonthlyView(container) {
   const inner = document.createElement("div");
   inner.className = "calendar-inner";
 
-  // Month header with month/year
+  const anchor =
+    calendarAnchorDate instanceof Date && !Number.isNaN(calendarAnchorDate.getTime())
+      ? calendarAnchorDate
+      : new Date();
+
+  // Month header with month/year (based on current calendar anchor)
   const monthHeader = document.createElement("div");
   monthHeader.className = "calendar-month-header";
-  const first = new Date(schedule[0].start);
-  const year = first.getFullYear();
-  const month = first.getMonth();
+  const year = anchor.getFullYear();
+  const month = anchor.getMonth();
   const monthNames = ["January", "February", "March", "April", "May", "June", 
                       "July", "August", "September", "October", "November", "December"];
   monthHeader.textContent = `${monthNames[month]} ${year}`;
@@ -8073,14 +8386,15 @@ function renderMonthlyView(container) {
   const totalCells = Math.ceil((startIndex + daysInMonth) / 7) * 7;
 
   const scheduleByDate = schedule.reduce((acc, s) => {
-    const day = s.start.slice(0, 10);
+    const day = localDateKey(new Date(s.start));
+    if (!day) return acc;
     acc[day] = acc[day] || [];
     acc[day].push(s);
     return acc;
   }, {});
 
   const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
+  const todayStr = localDateKey(today);
 
   for (let i = 0; i < totalCells; i++) {
     const cell = document.createElement("div");
@@ -8088,7 +8402,8 @@ function renderMonthlyView(container) {
 
     const dayNumber = i - startIndex + 1;
     if (dayNumber > 0 && dayNumber <= daysInMonth) {
-      const dateStr = new Date(year, month, dayNumber).toISOString().slice(0, 10);
+      const dateStr = localDateKey(new Date(year, month, dayNumber));
+      const dayDateObj = new Date(year, month, dayNumber);
       const dayLabel = document.createElement("div");
       dayLabel.className = "calendar-month-day";
       if (dateStr === todayStr) {
@@ -8096,6 +8411,25 @@ function renderMonthlyView(container) {
       }
       dayLabel.textContent = dayNumber;
       cell.appendChild(dayLabel);
+
+      // Make day cells keyboard-accessible and allow jumping to day view.
+      cell.tabIndex = 0;
+      cell.setAttribute("role", "button");
+      cell.setAttribute(
+        "aria-label",
+        `Open day view for ${dayDateObj.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`,
+      );
+      const openDay = () => {
+        setCalendarAnchorDate(dayDateObj, { render: false });
+        setCalendarView("daily");
+      };
+      cell.addEventListener("click", openDay);
+      cell.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openDay();
+        }
+      });
 
       const dayTasks = scheduleByDate[dateStr] || [];
       if (dayTasks.length > 0) {
@@ -8139,6 +8473,10 @@ function renderMonthlyView(container) {
             const startTime = formatMinutesToTime(blockStart.getHours() * 60 + blockStart.getMinutes());
             const endTime = formatMinutesToTime(blockEnd.getHours() * 60 + blockEnd.getMinutes());
             taskItem.title = `${displayLabel} (${startTime} - ${endTime})`;
+            taskItem.addEventListener("click", (e) => {
+              e.stopPropagation();
+              onCalendarBlockClick(block);
+            });
           }
           
           tasksContainer.appendChild(taskItem);
@@ -8391,6 +8729,7 @@ function initChatbot() {
     msg.innerHTML = sender === "bot" ? parseMarkdown(text) : text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     chatWindow.appendChild(msg);
     chatWindow.scrollTop = chatWindow.scrollHeight;
+    return msg;
   }
 
   function initialMessage() {
@@ -8405,26 +8744,199 @@ function initChatbot() {
     initialMessage();
   }
 
-  chatForm.addEventListener("submit", (e) => {
+  chatForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const text = chatInput.value.trim();
     if (!text) return;
     addMessage(text, "user");
     chatInput.value = "";
 
-    generateChatReply(text)
-      .then((reply) => addMessage(reply, "bot"))
-      .catch((err) => {
-        console.warn("Falling back to local reply:", err);
-        addMessage(fallbackRuleBasedReply(text), "bot");
+    const submitBtn = chatForm.querySelector('button[type="submit"]');
+    chatInput.disabled = true;
+    if (submitBtn) submitBtn.disabled = true;
+
+    const botMsg = addMessage("…", "bot");
+    botMsg.textContent = "";
+
+    let accumulated = "";
+    try {
+      const reply = await generateChatReply(text, {
+        onToken: (fullText) => {
+          accumulated = fullText;
+          botMsg.textContent = accumulated;
+          chatWindow.scrollTop = chatWindow.scrollHeight;
+        },
       });
+      accumulated = reply;
+      botMsg.innerHTML = parseMarkdown(accumulated);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+    } catch (err) {
+      console.warn("Falling back to local reply:", err);
+      const fallback = fallbackRuleBasedReply(text);
+      botMsg.innerHTML = parseMarkdown(fallback);
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+    } finally {
+      chatInput.disabled = false;
+      if (submitBtn) submitBtn.disabled = false;
+      chatInput.focus();
+    }
   });
 }
 
-async function generateChatReply(text) {
+async function streamSseJsonResponse(response, onEvent) {
+  if (!response.body) throw new Error("No response body.");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  let eventName = "";
+  let dataLines = [];
+
+  const dispatch = async () => {
+    if (!dataLines.length) {
+      eventName = "";
+      return;
+    }
+    const raw = dataLines.join("\n");
+    dataLines = [];
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = { raw };
+    }
+    await onEvent({ event: eventName || "message", data: parsed });
+    eventName = "";
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let idx;
+    while ((idx = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, idx).replace(/\r$/, "");
+      buffer = buffer.slice(idx + 1);
+      if (line.startsWith("event:")) {
+        eventName = line.slice("event:".length).trim();
+        continue;
+      }
+      if (line.startsWith("data:")) {
+        dataLines.push(line.slice("data:".length).trim());
+        continue;
+      }
+      if (line.startsWith(":")) continue;
+      if (line === "") {
+        await dispatch();
+      }
+    }
+  }
+
+  if (dataLines.length) {
+    await dispatch();
+  }
+}
+
+async function generateChatReply(text, options = {}) {
   const name = state.profile?.user_name || "friend";
 
   const token = getAuthToken();
+  const { onToken } = options || {};
+
+  // Prefer streaming endpoints when available.
+  if (token && !token.startsWith("guest_")) {
+    try {
+      let accumulated = "";
+      let finalReply = "";
+      let finalData = null;
+
+      const res = await fetch("/api/assistant/agent/stream", {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ message: text }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        const errorMsg = errorData.error || `API error: ${res.status}`;
+        throw new Error(errorMsg);
+      }
+
+      await streamSseJsonResponse(res, async ({ event, data }) => {
+        if (event === "token" && data && typeof data.token === "string") {
+          accumulated += data.token;
+          try {
+            onToken?.(accumulated);
+          } catch {}
+          return;
+        }
+        if (event === "result" && data && typeof data === "object") {
+          finalReply = typeof data.reply === "string" ? data.reply : finalReply;
+          finalData = data.data && typeof data.data === "object" ? data.data : finalData;
+          return;
+        }
+        if (event === "done") {
+          return;
+        }
+        if (event === "error") {
+          throw new Error(data?.error || "Assistant streaming failed");
+        }
+      });
+
+      const reply = finalReply || accumulated;
+      if (finalData && typeof finalData === "object") {
+        state = finalData;
+        try {
+          restoreFromState();
+        } catch {}
+        try {
+          await axisCacheStateSnapshot();
+        } catch {}
+      }
+
+      if (reply) return reply;
+      throw new Error("No reply field in assistant response");
+    } catch (err) {
+      console.warn("Assistant agent streaming failed; falling back to JSON agent API:", err);
+    }
+  }
+
+  // Guest / unauth streaming chat (no access to planner data)
+  try {
+    let accumulated = "";
+    let finalReply = "";
+    const res = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: text,
+        context: `User: ${name}. Current schedule has ${state.tasks?.length || 0} tasks.`,
+      }),
+    });
+
+    if (res.ok) {
+      await streamSseJsonResponse(res, async ({ event, data }) => {
+        if (event === "token" && data && typeof data.token === "string") {
+          accumulated += data.token;
+          try {
+            onToken?.(accumulated);
+          } catch {}
+          return;
+        }
+        if (event === "done" && data && typeof data.reply === "string") {
+          finalReply = data.reply;
+          return;
+        }
+        if (event === "error") {
+          throw new Error(data?.error || "Chat streaming failed");
+        }
+      });
+      return finalReply || accumulated || fallbackRuleBasedReply(text);
+    }
+  } catch (err) {
+    console.warn("Chat streaming failed; falling back to JSON chat API:", err);
+  }
 
   // Prefer the authenticated agent endpoint when available (can read/update your data).
   if (token && !token.startsWith("guest_")) {

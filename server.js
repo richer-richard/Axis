@@ -150,6 +150,19 @@ function resolveProviderForUserData(data) {
   return envDefault;
 }
 
+function resolveProviderForRequest(requestedProvider) {
+  const requested = normalizeProvider(requestedProvider);
+  if (requested && isProviderConfigured(requested)) return requested;
+
+  const envDefault = normalizeProvider(LLM_PROVIDER) || "deepseek";
+  if (isProviderConfigured(envDefault)) return envDefault;
+
+  const configured = listConfiguredProviders();
+  if (configured.length) return configured[0];
+
+  return requested || envDefault;
+}
+
 // ---------- LLM helpers ----------
 function safeParseJSON(text) {
   try {
@@ -157,6 +170,55 @@ function safeParseJSON(text) {
   } catch {
     return null;
   }
+}
+
+function extractFirstJsonObject(text) {
+  const input = String(text || "");
+  const start = input.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < input.length; i++) {
+    const ch = input[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === "{") depth += 1;
+    if (ch === "}") depth -= 1;
+    if (depth === 0) {
+      return input.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+function safeParseJSONFromText(text) {
+  if (text === undefined || text === null) return null;
+  const raw = String(text).trim();
+  const direct = safeParseJSON(raw);
+  if (direct) return direct;
+
+  const withoutFences = raw.replace(/```(?:json)?/gi, "").trim();
+  const fenceParsed = safeParseJSON(withoutFences);
+  if (fenceParsed) return fenceParsed;
+
+  const extracted = extractFirstJsonObject(raw) || extractFirstJsonObject(withoutFences);
+  if (extracted) return safeParseJSON(extracted);
+  return null;
 }
 
 // ---------- iCalendar (.ics) helpers ----------
@@ -302,7 +364,7 @@ async function callDeepSeek({
     throw new Error("DEEPSEEK_API_KEY is not configured on the server.");
   }
 
-  const payload = {
+  const basePayload = {
     model: DEEPSEEK_MODEL,
     messages: [
       { role: "system", content: system },
@@ -312,25 +374,42 @@ async function callDeepSeek({
     max_tokens: maxTokens,
   };
 
-  // DeepSeek supports OpenAI-style response_format on newer models
-  if (expectJSON) {
-    payload.response_format = { type: "json_object" };
-  }
+  const payload = expectJSON
+    ? {
+        ...basePayload,
+        // DeepSeek supports OpenAI-style response_format on newer models.
+        response_format: { type: "json_object" },
+      }
+    : basePayload;
 
-  const response = await fetch(DEEPSEEK_BASE_URL, {
+  const requestInit = (body) => ({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
 
+  let response = await fetch(DEEPSEEK_BASE_URL, requestInit(payload));
+  let errorText = "";
+
+  if (!response.ok && expectJSON) {
+    errorText = await response.text();
+    const parsed = safeParseJSON(errorText);
+    const message = parsed?.error?.message || errorText;
+    // Some DeepSeek deployments reject response_format; retry without it.
+    if (/response_format|json_object|response format/i.test(message)) {
+      response = await fetch(DEEPSEEK_BASE_URL, requestInit(basePayload));
+      errorText = "";
+    }
+  }
+
   if (!response.ok) {
-    const text = await response.text();
-    console.error("DeepSeek API error:", response.status, text);
+    if (!errorText) errorText = await response.text();
+    console.error("DeepSeek API error:", response.status, errorText);
     let errorMessage = "Upstream DeepSeek API error.";
-    const parsed = safeParseJSON(text);
+    const parsed = safeParseJSON(errorText);
     if (parsed?.error?.message) {
       errorMessage = parsed.error.message;
     }
@@ -460,7 +539,6 @@ async function callGemini({
     ...(system
       ? {
           systemInstruction: {
-            role: "system",
             parts: [{ text: system }],
           },
         }
@@ -507,14 +585,413 @@ async function callGemini({
 }
 
 async function callLlm(options) {
-  const requested = String(options?.provider || LLM_PROVIDER || "deepseek")
-    .trim()
-    .toLowerCase();
-  const provider = SUPPORTED_LLM_PROVIDERS.has(requested) ? requested : "deepseek";
+  const provider = resolveProviderForRequest(options?.provider || LLM_PROVIDER || "deepseek");
 
   if (provider === "openai") return callOpenAI(options);
   if (provider === "gemini") return callGemini(options);
   return callDeepSeek(options);
+}
+
+function setSseHeaders(res) {
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+}
+
+function sseSend(res, event, payload) {
+  if (event) res.write(`event: ${event}\n`);
+  const data = payload === undefined ? {} : payload;
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+async function readSseEvents(response, onEvent) {
+  if (!response.body) {
+    throw new Error("Upstream response has no body to stream.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  let eventName = "";
+  let dataLines = [];
+  let stop = false;
+
+  const dispatch = async () => {
+    if (!dataLines.length) {
+      eventName = "";
+      return;
+    }
+    const data = dataLines.join("\n");
+    dataLines = [];
+    const keepGoing = await onEvent({ event: eventName || "message", data });
+    eventName = "";
+    if (keepGoing === false) stop = true;
+  };
+
+  while (!stop) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let idx;
+    while (!stop && (idx = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, idx).replace(/\r$/, "");
+      buffer = buffer.slice(idx + 1);
+
+      if (line.startsWith("event:")) {
+        eventName = line.slice("event:".length).trim();
+        continue;
+      }
+      if (line.startsWith("data:")) {
+        dataLines.push(line.slice("data:".length).trim());
+        continue;
+      }
+      if (line.startsWith(":")) {
+        continue;
+      }
+      if (line === "") {
+        await dispatch();
+      }
+    }
+  }
+
+  if (!stop && buffer.length) {
+    const leftover = buffer.replace(/\r$/, "").trim();
+    if (leftover.startsWith("data:")) {
+      dataLines.push(leftover.slice("data:".length).trim());
+    } else if (leftover && leftover !== "[DONE]") {
+      dataLines.push(leftover);
+    }
+  }
+
+  if (!stop) {
+    await dispatch();
+  }
+
+  try {
+    await reader.cancel();
+  } catch {}
+}
+
+async function readJsonLines(response, onJson) {
+  if (!response.body) {
+    throw new Error("Upstream response has no body to stream.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let stop = false;
+
+  while (!stop) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let idx;
+    while ((idx = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, idx).replace(/\r$/, "").trim();
+      buffer = buffer.slice(idx + 1);
+      if (!line) continue;
+      const normalized = line.startsWith("data:") ? line.slice("data:".length).trim() : line;
+      if (!normalized) continue;
+      if (normalized === "[DONE]") {
+        stop = true;
+        break;
+      }
+      const parsed = safeParseJSONFromText(normalized);
+      if (parsed) {
+        const keepGoing = await onJson(parsed);
+        if (keepGoing === false) {
+          stop = true;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!stop) {
+    const rest = buffer.replace(/\r$/, "").trim();
+    if (rest) {
+      const normalized = rest.startsWith("data:") ? rest.slice("data:".length).trim() : rest;
+      const parsed = safeParseJSONFromText(normalized);
+      if (parsed) await onJson(parsed);
+    }
+  }
+
+  try {
+    await reader.cancel();
+  } catch {}
+}
+
+async function callDeepSeekStream({
+  system,
+  user,
+  temperature = 0.35,
+  maxTokens = 900,
+  onToken,
+  signal,
+}) {
+  if (!DEEPSEEK_API_KEY) {
+    throw new Error("DEEPSEEK_API_KEY is not configured on the server.");
+  }
+
+  const payload = {
+    model: DEEPSEEK_MODEL,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    temperature,
+    max_tokens: maxTokens,
+    stream: true,
+  };
+
+  const response = await fetch(DEEPSEEK_BASE_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
+    },
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    console.error("DeepSeek API error:", response.status, text);
+    let errorMessage = "Upstream DeepSeek API error.";
+    const parsed = safeParseJSON(text);
+    if (parsed?.error?.message) {
+      errorMessage = parsed.error.message;
+    }
+    throw new Error(`${errorMessage} (status ${response.status})`);
+  }
+
+  let full = "";
+  await readSseEvents(response, async ({ data }) => {
+    const trimmed = String(data || "").trim();
+    if (!trimmed) return;
+    if (trimmed === "[DONE]") return false;
+    const parsed = safeParseJSON(trimmed);
+    const delta = parsed?.choices?.[0]?.delta?.content;
+    if (typeof delta === "string" && delta.length) {
+      full += delta;
+      try {
+        onToken?.(delta);
+      } catch {}
+    }
+  });
+
+  return full;
+}
+
+async function callOpenAIStream({
+  system,
+  user,
+  temperature = 0.35,
+  maxTokens = 900,
+  onToken,
+  signal,
+}) {
+  if (!OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is not configured on the server.");
+  }
+
+  const isResponsesApi = OPENAI_BASE_URL.includes("/responses");
+
+  let payload;
+  if (isResponsesApi) {
+    payload = {
+      model: OPENAI_MODEL,
+      input: user,
+      instructions: system,
+      temperature,
+      max_output_tokens: maxTokens,
+      stream: true,
+    };
+  } else {
+    payload = {
+      model: OPENAI_MODEL,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature,
+      max_tokens: maxTokens,
+      stream: true,
+    };
+  }
+
+  const response = await fetch(OPENAI_BASE_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    console.error("OpenAI-compatible API error:", response.status, text);
+    let errorMessage = "Upstream OpenAI-compatible API error.";
+    const parsed = safeParseJSON(text);
+    if (parsed?.error?.message) {
+      errorMessage = parsed.error.message;
+    }
+    throw new Error(`${errorMessage} (status ${response.status})`);
+  }
+
+  let full = "";
+  let lastResponsesText = "";
+
+  await readSseEvents(response, async ({ data }) => {
+    const trimmed = String(data || "").trim();
+    if (!trimmed) return;
+    if (trimmed === "[DONE]") return false;
+    const parsed = safeParseJSON(trimmed);
+    if (!parsed) return;
+
+    if (isResponsesApi) {
+      if (typeof parsed.delta === "string" && parsed.delta.length) {
+        full += parsed.delta;
+        lastResponsesText += parsed.delta;
+        try {
+          onToken?.(parsed.delta);
+        } catch {}
+        return;
+      }
+
+      const maybeText =
+        parsed.output?.[0]?.content?.[0]?.text ||
+        parsed.output_text ||
+        (Array.isArray(parsed.output)
+          ? parsed.output
+              .flatMap((item) => (Array.isArray(item?.content) ? item.content : []))
+              .map((c) => c?.text || "")
+              .join("")
+          : "");
+
+      if (typeof maybeText === "string" && maybeText && maybeText.startsWith(lastResponsesText)) {
+        const delta = maybeText.slice(lastResponsesText.length);
+        if (delta) {
+          full += delta;
+          lastResponsesText = maybeText;
+          try {
+            onToken?.(delta);
+          } catch {}
+        }
+      }
+      return;
+    }
+
+    const delta = parsed?.choices?.[0]?.delta?.content;
+    if (typeof delta === "string" && delta.length) {
+      full += delta;
+      try {
+        onToken?.(delta);
+      } catch {}
+    }
+  });
+
+  return full;
+}
+
+async function callGeminiStream({
+  system,
+  user,
+  temperature = 0.35,
+  maxTokens = 900,
+  onToken,
+  signal,
+}) {
+  if (!GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not configured on the server.");
+  }
+
+  const modelName = GEMINI_MODEL.replace(/^models\//, "");
+  const endpoint = `${GEMINI_BASE_URL}/models/${encodeURIComponent(modelName)}:streamGenerateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
+
+  const payload = {
+    ...(system
+      ? {
+          systemInstruction: {
+            parts: [{ text: system }],
+          },
+        }
+      : {}),
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: user }],
+      },
+    ],
+    generationConfig: {
+      temperature,
+      maxOutputTokens: maxTokens,
+    },
+  };
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream, application/json",
+    },
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    console.error("Gemini API error:", response.status, text);
+    let errorMessage = "Upstream Gemini API error.";
+    const parsed = safeParseJSON(text);
+    if (parsed?.error?.message) {
+      errorMessage = parsed.error.message;
+    }
+    throw new Error(`${errorMessage} (status ${response.status})`);
+  }
+
+  let full = "";
+  let last = "";
+  await readJsonLines(response, async (chunk) => {
+    const parts = chunk?.candidates?.[0]?.content?.parts;
+    const text = Array.isArray(parts) ? parts.map((p) => p?.text || "").join("") : "";
+    if (!text) return;
+    if (text.startsWith(last)) {
+      const delta = text.slice(last.length);
+      if (delta) {
+        full += delta;
+        try {
+          onToken?.(delta);
+        } catch {}
+      }
+    } else {
+      full += text;
+      try {
+        onToken?.(text);
+      } catch {}
+    }
+    last = text;
+  });
+
+  return full;
+}
+
+async function callLlmStream(options) {
+  const provider = resolveProviderForRequest(options?.provider || LLM_PROVIDER || "deepseek");
+  if (provider === "openai") return callOpenAIStream(options);
+  if (provider === "gemini") return callGeminiStream(options);
+  return callDeepSeekStream(options);
 }
 
 // --- Security / hardening middleware ---
@@ -1643,7 +2120,7 @@ Profile: ${JSON.stringify(profileBrief).slice(0, 2000)}
     provider,
   });
 
-  const parsed = safeParseJSON(reply) || {};
+  const parsed = safeParseJSONFromText(reply) || {};
   const blocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
   if (!blocks.length) {
     throw new Error("AI returned no schedule blocks.");
@@ -1820,6 +2297,8 @@ Rules:
 - If the user request is ambiguous, ask a clarifying question in assistant_reply and leave tool_calls empty.
 - Never invent task or habit IDs; use snapshot/listed IDs.
 - Do NOT delete anything unless the user explicitly asked.
+- Keep tool_calls minimal (0–4 is ideal).
+- If the user asks to add/edit tasks, use create_task/update_task. Only rebalance_schedule if the user asks to change/rebalance the schedule.
 
 User message:
 ${message}
@@ -1838,6 +2317,22 @@ function buildAssistantFinalPrompt({ message, toolResults }) {
 Return JSON only: {"reply":"..."}.
 
 Write a concise, helpful response to the user. Summarize what you changed (if anything), and suggest the next best step.
+
+User message:
+${message}
+
+Tool results:
+${resultsJson}
+`.trim();
+}
+
+function buildAssistantFinalTextPrompt({ message, toolResults }) {
+  const resultsJson = JSON.stringify(toolResults, null, 2);
+  return `
+Write the final user-facing reply in plain text (no JSON, no markdown fences).
+Be concise, but include any important outcomes:
+- What you changed (tasks, habits, schedule).
+- If something failed, say what and what to do next.
 
 User message:
 ${message}
@@ -1880,7 +2375,7 @@ app.post(
 
       const planRaw = await callLlm({
         system:
-          "You are Axis Assistant. Decide which tools to call. Return strict JSON only. Never include markdown fences.",
+          "You are Axis Assistant, an agent that can update the user's planner via tools. Return strict JSON only. Never include markdown fences.",
         user: buildAssistantPlannerPrompt({ message, snapshot }),
         temperature: 0.2,
         maxTokens: 900,
@@ -1888,7 +2383,7 @@ app.post(
         provider,
       });
 
-      const planParsed = assistantPlannerResponseSchema.safeParse(safeParseJSON(planRaw));
+      const planParsed = assistantPlannerResponseSchema.safeParse(safeParseJSONFromText(planRaw));
       if (!planParsed.success) {
         return res.status(502).json({ error: "Assistant returned invalid JSON." });
       }
@@ -1935,7 +2430,7 @@ app.post(
         provider,
       });
 
-      const finalParsed = assistantFinalResponseSchema.safeParse(safeParseJSON(finalRaw));
+      const finalParsed = assistantFinalResponseSchema.safeParse(safeParseJSONFromText(finalRaw));
       if (!finalParsed.success) {
         return res.json({
           reply: planParsed.data.assistant_reply,
@@ -1948,6 +2443,117 @@ app.post(
     } catch (err) {
       console.error("assistant agent error:", err);
       res.status(500).json({ error: err.message || "Assistant failed" });
+    }
+  },
+);
+
+app.post(
+  "/api/assistant/agent/stream",
+  authenticateToken,
+  validateBody(assistantAgentRequestSchema),
+  async (req, res) => {
+    setSseHeaders(res);
+    const abort = new AbortController();
+    req.on("close", () => abort.abort());
+
+    try {
+      const userId = req.user.userId;
+      const rawData = await getUserData(userId);
+      if (!rawData) {
+        sseSend(res, "error", { error: "User data not found" });
+        res.end();
+        return;
+      }
+
+      const data = ensureAxisUserDataShape(rawData);
+      const provider = resolveProviderForUserData(data);
+      const snapshot = buildAssistantSnapshot(data);
+      const message = req.body.message;
+
+      sseSend(res, "meta", { provider });
+      sseSend(res, "status", { stage: "planning" });
+
+      const planRaw = await callLlm({
+        system:
+          "You are Axis Assistant, an agent that can update the user's planner via tools. Return strict JSON only. Never include markdown fences.",
+        user: buildAssistantPlannerPrompt({ message, snapshot }),
+        temperature: 0.2,
+        maxTokens: 900,
+        expectJSON: true,
+        provider,
+      });
+
+      const planParsed = assistantPlannerResponseSchema.safeParse(safeParseJSONFromText(planRaw));
+      if (!planParsed.success) {
+        sseSend(res, "error", { error: "Assistant returned invalid JSON." });
+        res.end();
+        return;
+      }
+
+      const toolCalls = planParsed.data.tool_calls.slice(0, 6);
+      const toolResults = [];
+      let changed = false;
+
+      sseSend(res, "status", { stage: "acting", toolCalls: toolCalls.length });
+
+      for (const call of toolCalls) {
+        const toolName = String(call?.name || "").trim();
+        if (!toolName) continue;
+        sseSend(res, "status", { stage: "tool_start", tool: toolName });
+        try {
+          const result = await executeAssistantTool({
+            name: toolName,
+            args: call.arguments,
+            userId,
+            data,
+            req,
+          });
+          toolResults.push({ name: toolName, ok: true, result });
+          if (!["get_snapshot", "list_tasks", "get_calendar_links"].includes(toolName)) {
+            changed = true;
+          }
+          sseSend(res, "status", { stage: "tool_done", tool: toolName, ok: true });
+        } catch (err) {
+          const error = err?.message || String(err);
+          toolResults.push({ name: toolName, ok: false, error });
+          sseSend(res, "status", { stage: "tool_done", tool: toolName, ok: false, error });
+        }
+      }
+
+      if (changed) {
+        await saveUserData(userId, data);
+      }
+
+      if (!toolCalls.length) {
+        const reply = planParsed.data.assistant_reply;
+        sseSend(res, "token", { token: reply });
+        sseSend(res, "result", { reply, toolResults, data });
+        sseSend(res, "done", {});
+        res.end();
+        return;
+      }
+
+      sseSend(res, "status", { stage: "responding" });
+
+      let reply = "";
+      reply = await callLlmStream({
+        system:
+          "You are Axis Assistant. Write the final user-facing reply only (plain text). Do not output JSON or markdown fences.",
+        user: buildAssistantFinalTextPrompt({ message, toolResults }),
+        temperature: 0.25,
+        maxTokens: 700,
+        provider,
+        onToken: (token) => sseSend(res, "token", { token }),
+        signal: abort.signal,
+      });
+
+      sseSend(res, "result", { reply, toolResults, data });
+      sseSend(res, "done", {});
+    } catch (err) {
+      const message = err?.name === "AbortError" ? "Client disconnected." : err?.message || String(err);
+      sseSend(res, "error", { error: message });
+    } finally {
+      res.end();
     }
   },
 );
@@ -2154,7 +2760,7 @@ User says important: ${normalizedImportantHint || "unknown"}
       expectJSON: true,
     });
 
-    const parsed = safeParseJSON(reply) || {};
+    const parsed = safeParseJSONFromText(reply) || {};
     const allowed = new Set([
       "Urgent & Important",
       "Urgent, Not Important",
@@ -2194,7 +2800,7 @@ Profile: ${JSON.stringify(profile).slice(0, 2000)}
       expectJSON: true,
       provider,
     });
-    const parsed = safeParseJSON(reply) || { rankedTasks: [] };
+    const parsed = safeParseJSONFromText(reply) || { rankedTasks: [] };
     res.json(parsed);
   } catch (err) {
     console.error("prioritize-tasks error:", err);
@@ -2232,7 +2838,7 @@ Productive windows: ${JSON.stringify(productiveWindows).slice(0, 1500)}
       expectJSON: true,
       provider,
     });
-    const parsed = safeParseJSON(reply) || { blocks: [] };
+    const parsed = safeParseJSONFromText(reply) || { blocks: [] };
     res.json(parsed);
   } catch (err) {
     console.error("schedule error:", err);
@@ -2341,7 +2947,7 @@ Profile: ${JSON.stringify(profileBrief).slice(0, 2000)}
         provider,
       });
 
-      const parsed = safeParseJSON(reply) || {};
+      const parsed = safeParseJSONFromText(reply) || {};
       const blocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
       if (!blocks.length) {
         return res.status(502).json({ error: "AI returned no schedule blocks." });
@@ -2396,7 +3002,7 @@ Goals: ${JSON.stringify(goals).slice(0, 3000)}
       expectJSON: true,
       provider,
     });
-    const parsed = safeParseJSON(reply) || {};
+    const parsed = safeParseJSONFromText(reply) || {};
     res.json(parsed);
   } catch (err) {
     console.error("reflection-summary error:", err);
@@ -2422,7 +3028,7 @@ Tasks: ${JSON.stringify(tasks).slice(0, 3000)}
       expectJSON: true,
       provider,
     });
-    const parsed = safeParseJSON(reply) || {};
+    const parsed = safeParseJSONFromText(reply) || {};
     res.json(parsed);
   } catch (err) {
     console.error("mood-plan error:", err);
@@ -2449,7 +3055,7 @@ Recent tasks: ${JSON.stringify(recentTasks).slice(0, 2000)}
       expectJSON: true,
       provider,
     });
-    const parsed = safeParseJSON(reply) || {};
+    const parsed = safeParseJSONFromText(reply) || {};
     res.json(parsed);
   } catch (err) {
     console.error("habit error:", err);
@@ -2476,7 +3082,7 @@ Estimates: ${JSON.stringify(estimates).slice(0, 2000)}
       expectJSON: true,
       provider,
     });
-    const parsed = safeParseJSON(reply) || {};
+    const parsed = safeParseJSONFromText(reply) || {};
     res.json(parsed);
   } catch (err) {
     console.error("focus-tuning error:", err);
@@ -2499,6 +3105,52 @@ app.use(express.static(path.join(__dirname), {
     }
   }
 }));
+
+app.post("/api/chat/stream", async (req, res) => {
+  const { message, context, provider } = req.body || {};
+  if (!message || typeof message !== "string") {
+    return res.status(400).json({ error: "Missing 'message' in request body." });
+  }
+
+  setSseHeaders(res);
+
+  const abort = new AbortController();
+  req.on("close", () => abort.abort());
+
+  const systemPrompt = [
+    "You are Axis, a supportive, professional AI study planner.",
+    "You help students prioritize tasks, manage time, and reduce procrastination.",
+    "Be concrete and actionable; ask a clarifying question when needed.",
+    "Avoid long essays; prefer short bullets when helpful.",
+  ].join(" ");
+
+  let userContent = message;
+  if (context && typeof context === "string") {
+    userContent = `Context:\n${context}\n\nUser question:\n${message}`;
+  }
+
+  const resolvedProvider = resolveProviderForRequest(provider || LLM_PROVIDER || "deepseek");
+  sseSend(res, "meta", { provider: resolvedProvider });
+
+  let reply = "";
+  try {
+    reply = await callLlmStream({
+      system: systemPrompt,
+      user: userContent,
+      temperature: 0.7,
+      maxTokens: 512,
+      provider: resolvedProvider,
+      onToken: (token) => sseSend(res, "token", { token }),
+      signal: abort.signal,
+    });
+    sseSend(res, "done", { reply });
+  } catch (err) {
+    const message = err?.name === "AbortError" ? "Client disconnected." : err?.message || String(err);
+    sseSend(res, "error", { error: message });
+  } finally {
+    res.end();
+  }
+});
 
 app.post("/api/chat", async (req, res) => {
   try {
