@@ -7253,7 +7253,7 @@ function parseWeekendSchedule(text) {
 
 // ---------- Calendar Rendering ----------
 
-let currentCalendarView = "weekly";
+let currentCalendarView = "daily";
 
 function initCalendarViewToggle() {
   // Remove existing listeners by cloning and replacing elements
@@ -9947,7 +9947,14 @@ function restoreFromState() {
   if (state.dailyHabits) {
     renderDailyHabits();
   }
-  renderSchedule();
+  
+  // Always regenerate schedule if profile exists to ensure fixed blocks are created
+  // This ensures the calendar shows weekly commitments even without tasks
+  if (state.profile) {
+    regenerateScheduleAndRender();
+  } else {
+    renderSchedule();
+  }
   
   // Only show wizard when explicitly in onboarding mode
   if (shouldShowOnboarding && !state.profile) {

@@ -356,18 +356,38 @@ async function callOpenAI({
     throw new Error("OPENAI_API_KEY is not configured on the server.");
   }
 
-  const payload = {
-    model: OPENAI_MODEL,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-    temperature,
-    max_tokens: maxTokens,
-  };
+  // Detect if using the Responses API (URL ends with /responses)
+  const isResponsesApi = OPENAI_BASE_URL.includes("/responses");
 
-  if (expectJSON) {
-    payload.response_format = { type: "json_object" };
+  let payload;
+  if (isResponsesApi) {
+    // OpenAI Responses API format
+    payload = {
+      model: OPENAI_MODEL,
+      input: user,
+      instructions: system,
+      temperature,
+      max_output_tokens: maxTokens,
+    };
+
+    if (expectJSON) {
+      payload.text = { format: { type: "json_object" } };
+    }
+  } else {
+    // Standard Chat Completions API format
+    payload = {
+      model: OPENAI_MODEL,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature,
+      max_tokens: maxTokens,
+    };
+
+    if (expectJSON) {
+      payload.response_format = { type: "json_object" };
+    }
   }
 
   const response = await fetch(OPENAI_BASE_URL, {
@@ -391,7 +411,31 @@ async function callOpenAI({
   }
 
   const data = await response.json();
-  const reply = data.choices?.[0]?.message?.content;
+
+  // Parse response based on API type
+  let reply;
+  if (isResponsesApi) {
+    // Responses API returns output array with message content
+    reply = data.output?.[0]?.content?.[0]?.text || data.output_text;
+    if (!reply && Array.isArray(data.output)) {
+      // Try to find text content in any output item
+      for (const item of data.output) {
+        if (item.type === "message" && Array.isArray(item.content)) {
+          for (const content of item.content) {
+            if (content.type === "output_text" || content.type === "text") {
+              reply = content.text;
+              break;
+            }
+          }
+        }
+        if (reply) break;
+      }
+    }
+  } else {
+    // Chat Completions API format
+    reply = data.choices?.[0]?.message?.content;
+  }
+
   if (!reply) {
     throw new Error("OpenAI reply missing content");
   }
