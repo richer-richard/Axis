@@ -221,6 +221,60 @@ function safeParseJSONFromText(text) {
   return null;
 }
 
+async function callLlmWithJsonRepair({
+  provider,
+  system,
+  user,
+  temperature = 0.2,
+  maxTokens = 900,
+  schema,
+  schemaHint,
+}) {
+  const raw = await callLlm({
+    provider,
+    system,
+    user,
+    temperature,
+    maxTokens,
+    expectJSON: true,
+  });
+
+  const parsed = safeParseJSONFromText(raw);
+  const validated = schema.safeParse(parsed);
+  if (validated.success) {
+    return { ok: true, raw, data: validated.data, repaired: false };
+  }
+
+  const repairSystem =
+    "You are a strict JSON formatter. Output ONLY valid JSON. No markdown fences, no commentary, no trailing commas.";
+  const repairUser = [
+    "Fix the following text into strict JSON that matches this schema:",
+    schemaHint ? `Schema: ${schemaHint}` : "",
+    "",
+    "Text to fix:",
+    raw,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const repairedRaw = await callLlm({
+    provider,
+    system: repairSystem,
+    user: repairUser,
+    temperature: 0,
+    maxTokens: Math.max(300, Math.min(maxTokens, 1200)),
+    expectJSON: true,
+  });
+
+  const repairedParsed = safeParseJSONFromText(repairedRaw);
+  const repairedValidated = schema.safeParse(repairedParsed);
+  if (repairedValidated.success) {
+    return { ok: true, raw: repairedRaw, data: repairedValidated.data, repaired: true };
+  }
+
+  return { ok: false, raw, repairedRaw };
+}
+
 // ---------- iCalendar (.ics) helpers ----------
 function icsEscapeText(value) {
   return String(value ?? "")
@@ -2373,22 +2427,22 @@ app.post(
       const snapshot = buildAssistantSnapshot(data);
       const message = req.body.message;
 
-      const planRaw = await callLlm({
+      const planResult = await callLlmWithJsonRepair({
+        provider,
         system:
           "You are Axis Assistant, an agent that can update the user's planner via tools. Return strict JSON only. Never include markdown fences.",
         user: buildAssistantPlannerPrompt({ message, snapshot }),
-        temperature: 0.2,
+        temperature: 0.15,
         maxTokens: 900,
-        expectJSON: true,
-        provider,
+        schema: assistantPlannerResponseSchema,
+        schemaHint: '{"assistant_reply":"string","tool_calls":[{"name":"tool","arguments":{...}}]}',
       });
 
-      const planParsed = assistantPlannerResponseSchema.safeParse(safeParseJSONFromText(planRaw));
-      if (!planParsed.success) {
+      if (!planResult.ok) {
         return res.status(502).json({ error: "Assistant returned invalid JSON." });
       }
 
-      const toolCalls = planParsed.data.tool_calls.slice(0, 6);
+      const toolCalls = planResult.data.tool_calls.slice(0, 6);
       const toolResults = [];
       let changed = false;
 
@@ -2417,29 +2471,29 @@ app.post(
       }
 
       if (!toolCalls.length) {
-        return res.json({ reply: planParsed.data.assistant_reply, data });
+        return res.json({ reply: planResult.data.assistant_reply, data });
       }
 
-      const finalRaw = await callLlm({
+      const finalResult = await callLlmWithJsonRepair({
+        provider,
         system:
           "You are Axis Assistant. Produce the final user-facing message. Return strict JSON only. Never include markdown fences.",
         user: buildAssistantFinalPrompt({ message, toolResults }),
-        temperature: 0.25,
+        temperature: 0.2,
         maxTokens: 700,
-        expectJSON: true,
-        provider,
+        schema: assistantFinalResponseSchema,
+        schemaHint: '{"reply":"string"}',
       });
 
-      const finalParsed = assistantFinalResponseSchema.safeParse(safeParseJSONFromText(finalRaw));
-      if (!finalParsed.success) {
+      if (!finalResult.ok) {
         return res.json({
-          reply: planParsed.data.assistant_reply,
+          reply: planResult.data.assistant_reply,
           toolResults,
           data,
         });
       }
 
-      res.json({ reply: finalParsed.data.reply, toolResults, data });
+      res.json({ reply: finalResult.data.reply, toolResults, data });
     } catch (err) {
       console.error("assistant agent error:", err);
       res.status(500).json({ error: err.message || "Assistant failed" });
@@ -2473,24 +2527,24 @@ app.post(
       sseSend(res, "meta", { provider });
       sseSend(res, "status", { stage: "planning" });
 
-      const planRaw = await callLlm({
+      const planResult = await callLlmWithJsonRepair({
+        provider,
         system:
           "You are Axis Assistant, an agent that can update the user's planner via tools. Return strict JSON only. Never include markdown fences.",
         user: buildAssistantPlannerPrompt({ message, snapshot }),
-        temperature: 0.2,
+        temperature: 0.15,
         maxTokens: 900,
-        expectJSON: true,
-        provider,
+        schema: assistantPlannerResponseSchema,
+        schemaHint: '{"assistant_reply":"string","tool_calls":[{"name":"tool","arguments":{...}}]}',
       });
 
-      const planParsed = assistantPlannerResponseSchema.safeParse(safeParseJSONFromText(planRaw));
-      if (!planParsed.success) {
+      if (!planResult.ok) {
         sseSend(res, "error", { error: "Assistant returned invalid JSON." });
         res.end();
         return;
       }
 
-      const toolCalls = planParsed.data.tool_calls.slice(0, 6);
+      const toolCalls = planResult.data.tool_calls.slice(0, 6);
       const toolResults = [];
       let changed = false;
 
@@ -2525,7 +2579,7 @@ app.post(
       }
 
       if (!toolCalls.length) {
-        const reply = planParsed.data.assistant_reply;
+        const reply = planResult.data.assistant_reply;
         sseSend(res, "token", { token: reply });
         sseSend(res, "result", { reply, toolResults, data });
         sseSend(res, "done", {});

@@ -1103,8 +1103,7 @@ function addMinutes(date, minutes) {
 }
 
 function todayLocalISODate() {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
+  return localDateKey(new Date());
 }
 
 function compareBy(a, b, key) {
@@ -7008,7 +7007,7 @@ function generateSchedule() {
           slot,
           score: scoreSlot(slot, task, dayInfo),
           slotDateTime: new Date(
-            `${date.toISOString().slice(0, 10)}T${formatMinutesToTime(slot.startMinutes)}:00`,
+            `${localDateKey(date)}T${formatMinutesToTime(slot.startMinutes)}:00`,
           ),
         }))
         .filter(candidate => {
@@ -7124,7 +7123,7 @@ function mergeFixedBlocks(fixedBlocks) {
   // Group by date and label
   const grouped = {};
   fixedBlocks.forEach(block => {
-    const dateStr = block.start.slice(0, 10);
+    const dateStr = localDateKey(new Date(block.start)) || block.start.slice(0, 10);
     const key = `${dateStr}_${block.label}_${block.category}`;
     if (!grouped[key]) {
       grouped[key] = [];
@@ -7195,7 +7194,7 @@ function createFixedBlocksForDay(definition, date, label, category, fixedBlocks)
     if (startMin == null || endMin == null) return;
     for (let minute = startMin; minute < endMin; minute += 30) {
       const startTimeStr = formatMinutesToTime(minute);
-      const start = new Date(`${date.toISOString().slice(0, 10)}T${startTimeStr}:00`);
+      const start = new Date(`${localDateKey(date)}T${startTimeStr}:00`);
       const end = addMinutes(start, 30);
       fixedBlocks.push({
         kind: "fixed",
@@ -9418,12 +9417,12 @@ function renderWeeklyProgress(tasks) {
   }
   
   const maxCompleted = Math.max(1, ...days.map(d => {
-    const dateStr = d.toISOString().slice(0, 10);
+    const dateStr = localDateKey(d);
     return tasks.filter(t => t.completed && t.task_deadline === dateStr).length;
   }));
   
   container.innerHTML = days.map(d => {
-    const dateStr = d.toISOString().slice(0, 10);
+    const dateStr = localDateKey(d);
     const completed = tasks.filter(t => t.completed && t.task_deadline === dateStr).length;
     const percent = (completed / maxCompleted) * 100;
     const dayName = dayNames[d.getDay()];
@@ -10389,7 +10388,7 @@ function handleRecurringTask(task) {
   if (!task.recurrence || task.recurrence === "") return;
   
   // Calculate next occurrence
-  const currentDeadline = new Date(task.task_deadline);
+  const currentDeadline = new Date(`${task.task_deadline}T00:00:00`);
   let nextDeadline = new Date(currentDeadline);
   
   switch (task.recurrence) {
@@ -10416,7 +10415,7 @@ function handleRecurringTask(task) {
   const newTask = {
     ...task,
     id: `task_${Date.now()}_${Math.random().toString(16).slice(2)}`,
-    task_deadline: nextDeadline.toISOString().slice(0, 10),
+    task_deadline: localDateKey(nextDeadline),
     completed: false,
     order: getNextTaskOrder(),
   };
