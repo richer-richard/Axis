@@ -72,6 +72,18 @@
       "order": 0,
       "fromDailyGoal": false,
       "goalId": null
+    },
+    {
+      "task_name": "Project Work",
+      "task_priority": "Important, Not Urgent",
+      "task_category": "project",
+      "task_deadline": "2026-01-15",
+      "task_deadline_time": "23:59",
+      "task_duration_hours": 3,
+      "computer_required": false,
+      "id": "task_1768292192040_8cd3c403d9a9b",
+      "completed": false,
+      "order": 1
     }
   ],
   "rankedTasks": [
@@ -88,6 +100,18 @@
       "order": 0,
       "fromDailyGoal": false,
       "goalId": null
+    },
+    {
+      "task_name": "Project Work",
+      "task_priority": "Important, Not Urgent",
+      "task_category": "project",
+      "task_deadline": "2026-01-15",
+      "task_deadline_time": "23:59",
+      "task_duration_hours": 3,
+      "computer_required": false,
+      "id": "task_1768292192040_8cd3c403d9a9b",
+      "completed": false,
+      "order": 1
     }
   ],
   "schedule": [
@@ -97,33 +121,42 @@
       "taskName": "Weekly Review",
       "priority": "Important, Not Urgent",
       "category": "personal",
-      "start": "2026-01-10T23:00:00.000Z",
-      "end": "2026-01-11T00:00:00.000Z",
+      "start": "2026-01-11T22:00:00.000Z",
+      "end": "2026-01-11T23:00:00.000Z",
+      "isWeekend": false
+    },
+    {
+      "kind": "task",
+      "taskId": "task_1768292192040_8cd3c403d9a9b",
+      "taskName": "Project Work",
+      "priority": "Important, Not Urgent",
+      "category": "project",
+      "start": "2026-01-11T23:00:00.000Z",
+      "end": "2026-01-12T00:00:00.000Z",
+      "isWeekend": false
+    },
+    {
+      "kind": "task",
+      "taskId": "task_1768292192040_8cd3c403d9a9b",
+      "taskName": "Project Work",
+      "priority": "Important, Not Urgent",
+      "category": "project",
+      "start": "2026-01-12T08:30:00.000Z",
+      "end": "2026-01-12T09:30:00.000Z",
+      "isWeekend": false
+    },
+    {
+      "kind": "task",
+      "taskId": "task_1768292192040_8cd3c403d9a9b",
+      "taskName": "Project Work",
+      "priority": "Important, Not Urgent",
+      "category": "project",
+      "start": "2026-01-12T22:00:00.000Z",
+      "end": "2026-01-12T23:00:00.000Z",
       "isWeekend": false
     }
   ],
   "fixedBlocks": [
-    {
-      "kind": "fixed",
-      "label": "School",
-      "category": "routine",
-      "start": "2026-01-11T00:00:00.000Z",
-      "end": "2026-01-11T08:30:00.000Z"
-    },
-    {
-      "kind": "fixed",
-      "label": "Break",
-      "category": "break",
-      "start": "2026-01-11T04:00:00.000Z",
-      "end": "2026-01-11T05:00:00.000Z"
-    },
-    {
-      "kind": "fixed",
-      "label": "Break",
-      "category": "break",
-      "start": "2026-01-11T10:00:00.000Z",
-      "end": "2026-01-11T11:00:00.000Z"
-    },
     {
       "kind": "fixed",
       "label": "School",
@@ -368,6 +401,27 @@
       "category": "break",
       "start": "2026-01-24T10:00:00.000Z",
       "end": "2026-01-24T11:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "School",
+      "category": "routine",
+      "start": "2026-01-25T00:00:00.000Z",
+      "end": "2026-01-25T08:30:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-25T04:00:00.000Z",
+      "end": "2026-01-25T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-25T10:00:00.000Z",
+      "end": "2026-01-25T11:00:00.000Z"
     }
   ],
   "goals": [
@@ -532,8 +586,8 @@
       "priority": "Important, Not Urgent",
       "recurrence": "",
       "createdAt": "2026-01-12T06:23:13.090Z",
-      "lastUsedAt": "",
-      "usageCount": 0,
+      "lastUsedAt": "2026-01-13T08:16:17.301Z",
+      "usageCount": 1,
       "builtin": true
     }
   ],
