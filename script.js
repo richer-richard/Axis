@@ -2103,73 +2103,6 @@ function renderGoalsHierarchy() {
   };
 }
 
-function renderBlockingRules() {
-  const container = $("#blockingRulesList");
-  if (!container) return;
-
-  container.innerHTML = "";
-
-  if (!state.blockingRules || state.blockingRules.length === 0) {
-    container.innerHTML = '<p class="settings-description">No blocking rules configured yet.</p>';
-    return;
-  }
-
-  state.blockingRules.forEach((rule) => {
-    const ruleEl = document.createElement("div");
-    ruleEl.className = "blocking-rule-item";
-    ruleEl.innerHTML = `
-      <div>
-        <strong>${rule.domain}</strong>
-        <span class="blocking-rule-action">${rule.action === "block" ? "Block" : `Redirect to ${rule.redirectUrl || ""}`}</span>
-      </div>
-      <button type="button" class="btn-icon-sm" data-delete-rule="${rule.id}">×</button>
-    `;
-    container.appendChild(ruleEl);
-  });
-
-  container.onclick = (e) => {
-    const deleteBtn = e.target.closest("[data-delete-rule]");
-    if (deleteBtn) {
-      const ruleId = deleteBtn.dataset.deleteRule;
-      state.blockingRules = state.blockingRules.filter((r) => r.id !== ruleId);
-      saveUserData();
-      renderBlockingRules();
-    }
-  };
-}
-
-// Initialize blocking rules button handler once (not in renderBlockingRules to avoid accumulation)
-function initBlockingRulesButton() {
-  const addBtn = $("#addBlockingRuleBtn");
-  if (!addBtn) return;
-  
-  // Remove existing listener if any (by cloning and replacing)
-  const newBtn = addBtn.cloneNode(true);
-  addBtn.parentNode?.replaceChild(newBtn, addBtn);
-  
-  newBtn.addEventListener("click", () => {
-    const domain = prompt("Enter domain to block (e.g., youtube.com):");
-    if (!domain) return;
-
-    const action = confirm("Block completely? (Cancel = Redirect)") ? "block" : "redirect";
-    let redirectUrl = "";
-    if (action === "redirect") {
-      redirectUrl = prompt("Enter redirect URL (e.g., youtube.com/feed/subscriptions):") || "";
-    }
-
-    const rule = {
-      id: `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      domain: domain.trim(),
-      action,
-      redirectUrl,
-    };
-
-    if (!state.blockingRules) state.blockingRules = [];
-    state.blockingRules.push(rule);
-    saveUserData();
-    renderBlockingRules();
-  });
-}
 
 function renderReflectionsList() {
   const container = $("#reflectionsList");
@@ -2365,12 +2298,6 @@ async function initSettings() {
   // Render goals hierarchy
   renderGoalsHierarchy();
 
-  // Render blocking rules with focus mode panel
-  renderFocusModePanel();
-  renderBlockingRules();
-  
-  // Initialize blocking rules buttons
-  initBlockingRulesButton();
 
   // Render reflections
   renderReflectionsList();
@@ -2508,74 +2435,6 @@ function initAccountSettings() {
   }
 }
 
-// Render focus mode panel in settings
-function renderFocusModePanel() {
-  const container = $("#focusModePanel");
-  if (!container) return;
-  
-  // Check if focus mode is currently active
-  const focusData = localStorage.getItem("axis_focus_mode");
-  let isActive = false;
-  let remainingMinutes = 0;
-  
-  if (focusData) {
-    try {
-      const data = JSON.parse(focusData);
-      if (data.active && data.endTime > Date.now()) {
-        isActive = true;
-        remainingMinutes = Math.floor((data.endTime - Date.now()) / 60000);
-      }
-    } catch (e) {}
-  }
-  
-  if (isActive) {
-    container.innerHTML = `
-      <div class="focus-start-panel">
-        <h4 class="focus-start-title">🎯 Focus Mode Active</h4>
-        <p style="margin: 0 0 12px; color: #6b7280; font-size: 0.85rem;">
-          ${remainingMinutes} minutes remaining. All distracting sites are blocked.
-        </p>
-        <button class="btn btn-ghost" id="stopFocusModeBtn">
-          End Focus Mode Early
-        </button>
-      </div>
-    `;
-    
-    document.getElementById("stopFocusModeBtn")?.addEventListener("click", () => {
-      localStorage.removeItem("axis_focus_mode");
-      renderFocusModePanel();
-      showToast("Focus mode ended.");
-    });
-  } else {
-    container.innerHTML = `
-      <div class="focus-start-panel">
-        <h4 class="focus-start-title">🎯 Start Focus Mode</h4>
-        <p style="margin: 0 0 12px; color: #6b7280; font-size: 0.85rem;">
-          Block all distracting sites for a set duration.
-        </p>
-        <div class="focus-duration-buttons">
-          <button class="focus-duration-btn" data-duration="25">25 min</button>
-          <button class="focus-duration-btn" data-duration="45">45 min</button>
-          <button class="focus-duration-btn" data-duration="60">1 hour</button>
-          <button class="focus-duration-btn" data-duration="90">1.5 hours</button>
-        </div>
-      </div>
-    `;
-    
-    container.querySelectorAll(".focus-duration-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const duration = parseInt(btn.dataset.duration, 10);
-        const endTime = Date.now() + (duration * 60 * 1000);
-        localStorage.setItem("axis_focus_mode", JSON.stringify({
-          active: true,
-          endTime: endTime
-        }));
-        renderFocusModePanel();
-        showToast(`Focus mode started for ${duration} minutes!`);
-      });
-    });
-  }
-}
 
 // Initialize new reflection button
 function initNewReflectionButton() {
@@ -2624,6 +2483,7 @@ function initDashboard() {
   initAnalytics();
   initDataManagement();
   restoreFromState();
+  
   try {
     window.AxisCalendarExport?.init?.();
   } catch {}
@@ -9572,12 +9432,6 @@ function initDataManagement() {
     clearScheduleBtn.addEventListener("click", () => clearData("schedule"));
   }
   
-  // Add common blocking rules
-  const addCommonRulesBtn = $("#addCommonRulesBtn");
-  if (addCommonRulesBtn) {
-    addCommonRulesBtn.addEventListener("click", addCommonBlockingRules);
-  }
-  
   updateDataSummary();
 }
 
@@ -9834,42 +9688,8 @@ function updateDataSummary() {
   if (summaryGoals) summaryGoals.textContent = (state.goals || []).length;
   if (summaryHabits) summaryHabits.textContent = (state.dailyHabits || []).length;
   if (summaryReflections) summaryReflections.textContent = (state.reflections || []).length;
-  if (summaryBlockingRules) summaryBlockingRules.textContent = (state.blockingRules || []).length;
 }
 
-function addCommonBlockingRules() {
-  const commonSites = [
-    { domain: "youtube.com", action: "block" },
-    { domain: "twitter.com", action: "block" },
-    { domain: "x.com", action: "block" },
-    { domain: "facebook.com", action: "block" },
-    { domain: "instagram.com", action: "block" },
-    { domain: "tiktok.com", action: "block" },
-    { domain: "reddit.com", action: "block" },
-    { domain: "netflix.com", action: "block" },
-  ];
-  
-  if (!state.blockingRules) state.blockingRules = [];
-  
-  const existingDomains = new Set(state.blockingRules.map(r => r.domain));
-  let added = 0;
-  
-  commonSites.forEach(site => {
-    if (!existingDomains.has(site.domain)) {
-      state.blockingRules.push({
-        id: `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        domain: site.domain,
-        action: site.action,
-        redirectUrl: "",
-      });
-      added++;
-    }
-  });
-  
-  saveUserData();
-  renderBlockingRules();
-  showToast(`Added ${added} common blocking rules.`);
-}
 
 // ---------- Recurring Tasks ----------
 

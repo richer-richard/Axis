@@ -1,73 +1,376 @@
 {
+  "settings": {
+    "aiProvider": null
+  },
   "profile": {
-    "user_name": "Emily",
-    "user_age_group": "Middle School",
+    "user_name": "Doge",
+    "user_age_group": "11-20",
     "weekly_schedule": {
-      "Mon": [],
-      "Tue": [],
-      "Wed": [],
-      "Thu": [],
-      "Fri": []
+      "Mon": [
+        {
+          "name": "School",
+          "time": "8:00 - 16:30",
+          "description": null
+        }
+      ],
+      "Tue": [
+        {
+          "name": "School",
+          "time": "8:00 - 16:30",
+          "description": null
+        }
+      ],
+      "Wed": [
+        {
+          "name": "School",
+          "time": "8:00 - 16:30",
+          "description": null
+        }
+      ],
+      "Thu": [
+        {
+          "name": "School",
+          "time": "8:00 - 16:30",
+          "description": null
+        }
+      ],
+      "Fri": [
+        {
+          "name": "School",
+          "time": "8:00 - 16:30",
+          "description": null
+        }
+      ]
     },
     "weekend_schedule": {
       "Saturday": [],
       "Sunday": []
     },
-    "sleep_weekdays": "",
-    "sleep_weekends": "",
-    "break_times": "",
-    "is_procrastinator": null,
-    "procrastinator_type": null,
+    "sleep_weekdays": "22:00 - 5:00",
+    "sleep_weekends": "22:00 - 6:00",
+    "break_times": "12:00 - 13:00 lunch, 18:00-19:00 dinner",
+    "is_procrastinator": "yes",
+    "procrastinator_type": "perfectionist",
     "has_trouble_finishing": null,
-    "preferred_work_style": null,
-    "most_productive_time": null,
-    "preferred_study_method": "",
+    "preferred_work_style": "Long, deep sessions",
+    "most_productive_time": "Morning",
+    "preferred_study_method": "60-min study, 20-min break",
     "weekly_personal_time": 0,
     "weekly_review_hours": 0
   },
   "tasks": [
     {
-      "id": "task_goal_goal_node_1765787410551_0ae731bcacd99",
-      "name": "Read 30 pages",
-      "description": "Daily goal: Read 30 pages",
-      "priority": "important-not-urgent",
-      "category": "read-30-pages",
-      "estimatedHours": 1,
-      "deadline": null,
+      "id": "task_1768199608448_107e0eae2a7c58",
+      "task_name": "Weekly Review",
+      "task_priority": "Important, Not Urgent",
+      "task_category": "personal",
+      "task_deadline": "2026-01-13",
+      "task_deadline_time": "23:59",
+      "task_duration_hours": 1,
+      "computer_required": false,
       "completed": false,
-      "fromDailyGoal": true,
-      "goalId": "goal_node_1765787410551_0ae731bcacd99"
-    },
-    {
-      "id": "task_goal_goal_node_1765787410551_544aa090ad0cd8",
-      "name": "Write a short summary",
-      "description": "Daily goal: Write a short summary",
-      "priority": "important-not-urgent",
-      "category": "write-a-short-summary",
-      "estimatedHours": 1,
-      "deadline": null,
-      "completed": false,
-      "fromDailyGoal": true,
-      "goalId": "goal_node_1765787410551_544aa090ad0cd8"
+      "order": 0,
+      "fromDailyGoal": false,
+      "goalId": null
     }
   ],
-  "rankedTasks": [],
-  "schedule": [],
-  "fixedBlocks": [],
-  "goals": [
+  "rankedTasks": [
     {
-      "id": "goal_node_1765787391100_2b5eaa5885106",
-      "name": "Read 50 Books",
-      "level": "yearly",
-      "parentId": null,
-      "canvasX": 0,
-      "canvasY": 0,
-      "color": {
-        "bg": "rgba(14, 165, 233, 0.15)",
-        "border": "rgba(14, 165, 233, 0.3)",
-        "text": "#0284c7"
-      }
+      "id": "task_1768199608448_107e0eae2a7c58",
+      "task_name": "Weekly Review",
+      "task_priority": "Important, Not Urgent",
+      "task_category": "personal",
+      "task_deadline": "2026-01-13",
+      "task_deadline_time": "23:59",
+      "task_duration_hours": 1,
+      "computer_required": false,
+      "completed": false,
+      "order": 0,
+      "fromDailyGoal": false,
+      "goalId": null
+    }
+  ],
+  "schedule": [
+    {
+      "kind": "task",
+      "taskId": "task_1768199608448_107e0eae2a7c58",
+      "taskName": "Weekly Review",
+      "priority": "Important, Not Urgent",
+      "category": "personal",
+      "start": "2026-01-10T23:00:00.000Z",
+      "end": "2026-01-11T00:00:00.000Z",
+      "isWeekend": false
+    }
+  ],
+  "fixedBlocks": [
+    {
+      "kind": "fixed",
+      "label": "School",
+      "category": "routine",
+      "start": "2026-01-11T00:00:00.000Z",
+      "end": "2026-01-11T08:30:00.000Z"
     },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-11T04:00:00.000Z",
+      "end": "2026-01-11T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-11T10:00:00.000Z",
+      "end": "2026-01-11T11:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "School",
+      "category": "routine",
+      "start": "2026-01-12T00:00:00.000Z",
+      "end": "2026-01-12T08:30:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-12T04:00:00.000Z",
+      "end": "2026-01-12T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-12T10:00:00.000Z",
+      "end": "2026-01-12T11:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "School",
+      "category": "routine",
+      "start": "2026-01-13T00:00:00.000Z",
+      "end": "2026-01-13T08:30:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-13T04:00:00.000Z",
+      "end": "2026-01-13T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-13T10:00:00.000Z",
+      "end": "2026-01-13T11:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "School",
+      "category": "routine",
+      "start": "2026-01-14T00:00:00.000Z",
+      "end": "2026-01-14T08:30:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-14T04:00:00.000Z",
+      "end": "2026-01-14T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-14T10:00:00.000Z",
+      "end": "2026-01-14T11:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "School",
+      "category": "routine",
+      "start": "2026-01-15T00:00:00.000Z",
+      "end": "2026-01-15T08:30:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-15T04:00:00.000Z",
+      "end": "2026-01-15T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-15T10:00:00.000Z",
+      "end": "2026-01-15T11:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-16T04:00:00.000Z",
+      "end": "2026-01-16T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-16T10:00:00.000Z",
+      "end": "2026-01-16T11:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-17T04:00:00.000Z",
+      "end": "2026-01-17T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-17T10:00:00.000Z",
+      "end": "2026-01-17T11:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "School",
+      "category": "routine",
+      "start": "2026-01-18T00:00:00.000Z",
+      "end": "2026-01-18T08:30:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-18T04:00:00.000Z",
+      "end": "2026-01-18T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-18T10:00:00.000Z",
+      "end": "2026-01-18T11:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "School",
+      "category": "routine",
+      "start": "2026-01-19T00:00:00.000Z",
+      "end": "2026-01-19T08:30:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-19T04:00:00.000Z",
+      "end": "2026-01-19T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-19T10:00:00.000Z",
+      "end": "2026-01-19T11:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "School",
+      "category": "routine",
+      "start": "2026-01-20T00:00:00.000Z",
+      "end": "2026-01-20T08:30:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-20T04:00:00.000Z",
+      "end": "2026-01-20T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-20T10:00:00.000Z",
+      "end": "2026-01-20T11:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "School",
+      "category": "routine",
+      "start": "2026-01-21T00:00:00.000Z",
+      "end": "2026-01-21T08:30:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-21T04:00:00.000Z",
+      "end": "2026-01-21T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-21T10:00:00.000Z",
+      "end": "2026-01-21T11:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "School",
+      "category": "routine",
+      "start": "2026-01-22T00:00:00.000Z",
+      "end": "2026-01-22T08:30:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-22T04:00:00.000Z",
+      "end": "2026-01-22T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-22T10:00:00.000Z",
+      "end": "2026-01-22T11:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-23T04:00:00.000Z",
+      "end": "2026-01-23T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-23T10:00:00.000Z",
+      "end": "2026-01-23T11:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-24T04:00:00.000Z",
+      "end": "2026-01-24T05:00:00.000Z"
+    },
+    {
+      "kind": "fixed",
+      "label": "Break",
+      "category": "break",
+      "start": "2026-01-24T10:00:00.000Z",
+      "end": "2026-01-24T11:00:00.000Z"
+    }
+  ],
+  "goals": [
     {
       "id": "goal_node_1765787401118_89c0a651aa289",
       "name": "Read 12 books",
@@ -79,115 +382,166 @@
         "bg": "rgba(236, 72, 153, 0.15)",
         "border": "rgba(236, 72, 153, 0.3)",
         "text": "#db2777"
-      }
+      },
+      "createdAt": "2026-01-12T06:23:13.081Z",
+      "manualProgress": 0,
+      "milestones": [
+        25,
+        50,
+        75
+      ],
+      "startDate": "2026-01-12",
+      "endDate": "2026-01-12",
+      "completed": false,
+      "completedAt": ""
     },
     {
-      "id": "goal_node_1765787406201_c717cccb132358",
-      "name": "Read 4 books",
-      "level": "monthly",
-      "parentId": "goal_node_1765787401118_89c0a651aa289",
-      "canvasX": 0,
-      "canvasY": 0,
+      "id": "goal_1768199345732_9ce1a7c1a843d",
+      "name": "Complete USACO Bronze",
       "color": {
-        "bg": "rgba(34, 197, 94, 0.15)",
-        "border": "rgba(34, 197, 94, 0.3)",
-        "text": "#16a34a"
-      }
-    },
-    {
-      "id": "goal_node_1765787406201_8b3a018bda989",
-      "name": "Establish daily reading habit",
-      "level": "monthly",
-      "parentId": "goal_node_1765787401118_89c0a651aa289",
-      "canvasX": 0,
-      "canvasY": 0,
-      "color": {
-        "bg": "rgba(34, 197, 94, 0.15)",
-        "border": "rgba(34, 197, 94, 0.3)",
-        "text": "#16a34a"
-      }
-    },
-    {
-      "id": "goal_node_1765787408635_82882b9d4b81d",
-      "name": "Read one book",
+        "bg": "rgba(14, 165, 233, 0.15)",
+        "border": "rgba(14, 165, 233, 0.3)",
+        "text": "#0284c7"
+      },
       "level": "weekly",
-      "parentId": "goal_node_1765787406201_c717cccb132358",
-      "canvasX": 0,
-      "canvasY": 0,
-      "color": {
-        "bg": "rgba(251, 146, 60, 0.15)",
-        "border": "rgba(251, 146, 60, 0.3)",
-        "text": "#ea580c"
-      }
-    },
-    {
-      "id": "goal_node_1765787408635_7224dcf72de43",
-      "name": "Set reading schedule for the month",
-      "level": "weekly",
-      "parentId": "goal_node_1765787406201_c717cccb132358",
-      "canvasX": 0,
-      "canvasY": 0,
-      "color": {
-        "bg": "rgba(251, 146, 60, 0.15)",
-        "border": "rgba(251, 146, 60, 0.3)",
-        "text": "#ea580c"
-      }
-    },
-    {
-      "id": "goal_node_1765787410551_c24a2e65cd4288",
-      "name": "Read for 15 minutes each night",
-      "level": "weekly",
-      "parentId": "goal_node_1765787406201_8b3a018bda989",
-      "canvasX": 0,
-      "canvasY": 0,
-      "color": {
-        "bg": "rgba(251, 146, 60, 0.15)",
-        "border": "rgba(251, 146, 60, 0.3)",
-        "text": "#ea580c"
-      }
-    },
-    {
-      "id": "goal_node_1765787410551_16fb194d2b67b",
-      "name": "Choose and start one short book",
-      "level": "weekly",
-      "parentId": "goal_node_1765787406201_8b3a018bda989",
-      "canvasX": 0,
-      "canvasY": 0,
-      "color": {
-        "bg": "rgba(251, 146, 60, 0.15)",
-        "border": "rgba(251, 146, 60, 0.3)",
-        "text": "#ea580c"
-      }
-    },
-    {
-      "id": "goal_node_1765787410551_0ae731bcacd99",
-      "name": "Read 30 pages",
-      "level": "daily",
-      "parentId": "goal_node_1765787408635_82882b9d4b81d",
-      "canvasX": 0,
-      "canvasY": 0,
-      "color": {
-        "bg": "rgba(168, 85, 247, 0.15)",
-        "border": "rgba(168, 85, 247, 0.3)",
-        "text": "#7c3aed"
-      }
-    },
-    {
-      "id": "goal_node_1765787410551_544aa090ad0cd8",
-      "name": "Write a short summary",
-      "level": "daily",
-      "parentId": "goal_node_1765787408635_82882b9d4b81d",
-      "canvasX": 0,
-      "canvasY": 0,
-      "color": {
-        "bg": "rgba(168, 85, 247, 0.15)",
-        "border": "rgba(168, 85, 247, 0.3)",
-        "text": "#7c3aed"
-      }
+      "parentId": null,
+      "createdAt": "2026-01-12T06:29:05.732Z",
+      "manualProgress": 25,
+      "milestones": [
+        25,
+        50,
+        75
+      ],
+      "startDate": "2026-01-12",
+      "endDate": "2026-01-18",
+      "completed": false,
+      "completedAt": ""
     }
   ],
-  "reflections": [],
-  "blockingRules": [],
-  "dailyHabits": [],
+  "reflections": [
+    {
+      "id": "reflection_1768200153557_6zbxd7nub",
+      "type": "weekly",
+      "date": "2026-01-12T06:42:33.557Z",
+      "content": "High pressure during early morning. Adjust the pressure to morning.",
+      "analysis": "Analysis pending."
+    }
+  ],
+  "blockingRules": [
+    {
+      "id": "rule_1768200302917_vxf9mv4lk",
+      "domain": "youtube.com",
+      "action": "block",
+      "redirectUrl": ""
+    },
+    {
+      "id": "rule_1768200302917_id41xyvfe",
+      "domain": "twitter.com",
+      "action": "block",
+      "redirectUrl": ""
+    },
+    {
+      "id": "rule_1768200302917_u5m87z4tu",
+      "domain": "x.com",
+      "action": "block",
+      "redirectUrl": ""
+    },
+    {
+      "id": "rule_1768200302917_ubny0qjv9",
+      "domain": "facebook.com",
+      "action": "block",
+      "redirectUrl": ""
+    },
+    {
+      "id": "rule_1768200302917_8h44n58ik",
+      "domain": "instagram.com",
+      "action": "block",
+      "redirectUrl": ""
+    },
+    {
+      "id": "rule_1768200302917_6o97jiuw5",
+      "domain": "tiktok.com",
+      "action": "block",
+      "redirectUrl": ""
+    },
+    {
+      "id": "rule_1768200302917_99mzcq1j9",
+      "domain": "reddit.com",
+      "action": "block",
+      "redirectUrl": ""
+    },
+    {
+      "id": "rule_1768200302917_94v3quy6j",
+      "domain": "netflix.com",
+      "action": "block",
+      "redirectUrl": ""
+    }
+  ],
+  "dailyHabits": [
+    {
+      "id": "habit_1768199657442_cef879b80e9f8",
+      "name": "drink water",
+      "time": "07:00 AM",
+      "description": ""
+    }
+  ],
+  "focusSessions": [],
+  "weeklyInsights": null,
+  "achievements": {
+    "badges": {
+      "firstTask": true,
+      "tasks10": false,
+      "streak3": false,
+      "firstGoal": false
+    },
+    "currentStreak": 1,
+    "bestStreak": 1,
+    "lastCompletedAt": "2026-01-12T06:34:23.811Z",
+    "completedTaskCount": 1
+  },
+  "taskTemplates": [
+    {
+      "id": "tpl_study_session",
+      "name": "Study Session",
+      "category": "study",
+      "durationHours": 2,
+      "priority": "Important, Not Urgent",
+      "recurrence": "",
+      "createdAt": "2026-01-12T06:23:13.090Z",
+      "lastUsedAt": "",
+      "usageCount": 0,
+      "builtin": true
+    },
+    {
+      "id": "tpl_weekly_review",
+      "name": "Weekly Review",
+      "category": "personal",
+      "durationHours": 1,
+      "priority": "Important, Not Urgent",
+      "recurrence": "weekly",
+      "createdAt": "2026-01-12T06:23:13.090Z",
+      "lastUsedAt": "2026-01-12T06:33:20.885Z",
+      "usageCount": 1,
+      "builtin": true
+    },
+    {
+      "id": "tpl_project_work",
+      "name": "Project Work",
+      "category": "project",
+      "durationHours": 3,
+      "priority": "Important, Not Urgent",
+      "recurrence": "",
+      "createdAt": "2026-01-12T06:23:13.090Z",
+      "lastUsedAt": "",
+      "usageCount": 0,
+      "builtin": true
+    }
+  ],
+  "calendarExportSettings": {
+    "includeFixedBlocks": true,
+    "includeCompletedTasks": false,
+    "reminderMinutes": 15,
+    "lastExportAt": ""
+  },
   "firstReflectionDueDate": "2025-12-22T08:29:33.546Z"
 }
