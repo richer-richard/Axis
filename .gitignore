@@ -29,6 +29,9 @@ users.json
 __pycache__/
 *.pyc
 *.pyo
+venv/
+.venv/
+.mypy_cache/
 
 # Icon files (macOS)
 Icon

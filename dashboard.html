@@ -618,7 +618,6 @@
             <button class="settings-tab active" data-tab="profile">Profile</button>
             <button class="settings-tab" data-tab="account">Account</button>
             <button class="settings-tab" data-tab="goals">Goals</button>
-            <button class="settings-tab" data-tab="blocking">Focus & Blocking</button>
             <button class="settings-tab" data-tab="notifications">Notifications</button>
             <button class="settings-tab" data-tab="experience">Experience</button>
             <button class="settings-tab" data-tab="reflections">Reflections</button>
@@ -693,26 +692,6 @@
             <p class="settings-description">Manage your goals across different timeframes.</p>
             <div id="goalsHierarchy" class="goals-hierarchy">
               <!-- Goals hierarchy will be rendered here -->
-            </div>
-          </div>
-
-          <!-- Focus & Blocking Settings -->
-          <div id="settingsBlocking" class="settings-section">
-            <div id="focusModePanel">
-              <!-- Focus mode panel will be rendered here by blocker component -->
-            </div>
-            
-            <h3>Website Blocking Rules</h3>
-            <p class="settings-description">
-              Configure rules to block or redirect distracting websites during focus time.
-              These rules are enforced when focus mode is active.
-            </p>
-            <div id="blockingRulesList" class="blocking-rules-list">
-              <!-- Blocking rules will be rendered here -->
-            </div>
-            <div style="display: flex; gap: 12px; margin-top: 16px;">
-              <button id="addBlockingRuleBtn" class="btn btn-secondary">+ Add Rule</button>
-              <button id="addCommonRulesBtn" class="btn btn-ghost">Add Common Sites</button>
             </div>
           </div>
 
@@ -887,10 +866,6 @@
               <div class="data-summary-item">
                 <span class="data-summary-label">Reflections:</span>
                 <span class="data-summary-value" id="summaryReflections">0</span>
-              </div>
-              <div class="data-summary-item">
-                <span class="data-summary-label">Blocking Rules:</span>
-                <span class="data-summary-value" id="summaryBlockingRules">0</span>
               </div>
             </div>
             
