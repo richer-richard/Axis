@@ -9010,24 +9010,124 @@ async function generateChatReply(text, options = {}) {
 function fallbackRuleBasedReply(text) {
   const lower = text.toLowerCase();
   const name = state.profile?.user_name || "friend";
+  const taskCount = (state.tasks || []).filter(t => !t.completed).length;
+  const hasDeadlineSoon = (state.tasks || []).some(t => {
+    if (t.completed) return false;
+    const deadline = new Date(`${t.task_deadline}T${t.task_deadline_time || "23:59"}:00`);
+    const now = new Date();
+    const hoursUntil = (deadline - now) / (1000 * 60 * 60);
+    return hoursUntil > 0 && hoursUntil < 48;
+  });
 
-  if (lower.includes("overwhelmed") || lower.includes("too much")) {
-    return `I hear you, ${name}. Let’s tackle this gently: start with the most urgent & important task and aim for one 25‑minute focus block. After that, take a 5‑minute break and reassess — you don’t have to finish everything at once.`;
+  // Stress and overwhelm
+  if (lower.includes("overwhelmed") || lower.includes("too much") || lower.includes("stressed") || lower.includes("anxiety")) {
+    return `I hear you, ${name}. Let's tackle this gently: start with the most urgent & important task and aim for one 25‑minute focus block. After that, take a 5‑minute break and reassess — you don't have to finish everything at once. ${hasDeadlineSoon ? "I see you have something due soon, but even small progress counts." : ""}`;
   }
-  if (lower.includes("procrastinate") || lower.includes("motivation")) {
-    return `Procrastination usually shows up when a task feels vague or huge. Try rewriting one task as a very concrete 30‑minute action (like “outline intro paragraph” instead of “write essay”), then start the smallest, easiest part. I’ll keep scheduling sessions so future‑you isn’t stressed right before deadlines.`;
+
+  // Procrastination and motivation
+  if (lower.includes("procrastinate") || lower.includes("procrastinating") || lower.includes("lazy") || lower.includes("can't start")) {
+    return `Procrastination usually shows up when a task feels vague or huge. Try rewriting one task as a very concrete 30‑minute action (like "outline intro paragraph" instead of "write essay"), then start the smallest, easiest part. I'll keep scheduling sessions so future‑you isn't stressed right before deadlines.`;
   }
-  if (lower.includes("break") || lower.includes("rest")) {
-    return `Smart breaks keep your brain sharp. After about 25–50 minutes of focused work, step away for 5–10 minutes — move, hydrate, or look away from screens — then come back for another block. I’ll help you preserve your weekly personal time so rest is protected, not optional.`;
+
+  if (lower.includes("motivation") || lower.includes("motivated") || lower.includes("energy") || lower.includes("tired")) {
+    return `Low motivation is often a signal, not a flaw, ${name}. Try the "2-minute rule": commit to just 2 minutes on your most important task. Often, starting is the hardest part. If you're genuinely tired, a short rest or walk might help more than pushing through.`;
   }
-  if (lower.includes("focus") || lower.includes("distract")) {
+
+  // Breaks and rest
+  if (lower.includes("break") || lower.includes("rest") || lower.includes("burnout") || lower.includes("exhausted")) {
+    return `Smart breaks keep your brain sharp. After about 25–50 minutes of focused work, step away for 5–10 minutes — move, hydrate, or look away from screens — then come back for another block. I'll help you preserve your weekly personal time so rest is protected, not optional.`;
+  }
+
+  // Focus and distractions
+  if (lower.includes("focus") || lower.includes("distract") || lower.includes("concentrate") || lower.includes("attention")) {
     return `To protect your focus, choose one task block from the calendar and commit to it only for the next 25 minutes. Silence notifications, clear your desk, and keep just what you need for that task visible. If you're deadline-driven, we can use the countdown timer to recreate that urgency early, not at the last minute.`;
   }
-  if (lower.includes("schedule") || lower.includes("plan")) {
-    return `Your schedule is built around deadlines, priorities, and your productive times. If something feels off, you can tell me which task is stressing you most, and I’ll suggest which block to move or split so your plan feels more humane and still finishes before the deadline.`;
+
+  // Scheduling and planning
+  if (lower.includes("schedule") || lower.includes("plan") || lower.includes("organize") || lower.includes("calendar")) {
+    return `Your schedule is built around deadlines, priorities, and your productive times. If something feels off, you can tell me which task is stressing you most, and I'll suggest which block to move or split so your plan feels more humane and still finishes before the deadline.`;
   }
 
-  return `Good question, ${name}. In general: keep your highest‑priority tasks in your most productive time of day, use 30‑minute chunks so nothing feels impossible, and avoid stacking all the hard work right before deadlines. If you tell me which task feels most important today, I can help you choose the best starting point.`;
+  // Deadlines and urgency
+  if (lower.includes("deadline") || lower.includes("due") || lower.includes("urgent") || lower.includes("late")) {
+    if (hasDeadlineSoon) {
+      return `I see you have tasks due soon, ${name}. Let's prioritize: focus on what's most urgent first, and consider if any tasks can be split into smaller chunks or rescheduled. Would you like me to help you rebalance your schedule?`;
+    }
+    return `Deadlines can feel intense, but they're also useful for creating focus. The key is to work backwards: identify when something is due, then schedule focused work sessions leading up to it — not just the night before.`;
+  }
+
+  // Priorities and decision-making
+  if (lower.includes("priority") || lower.includes("prioritize") || lower.includes("important") || lower.includes("which task") || lower.includes("what should i")) {
+    if (taskCount > 0) {
+      return `When prioritizing, ${name}, ask yourself: "What's both urgent AND important?" Start there. If nothing is urgent, pick the most important task and dedicate your peak energy hours to it. You have ${taskCount} active task${taskCount > 1 ? 's' : ''} — want me to help you rank them?`;
+    }
+    return `The Eisenhower Matrix is your friend: Urgent & Important tasks come first, then Important but Not Urgent (schedule these), then delegate or batch the rest. What feels most pressing right now?`;
+  }
+
+  // Goals and progress
+  if (lower.includes("goal") || lower.includes("progress") || lower.includes("achieve") || lower.includes("accomplish")) {
+    const goalCount = (state.goals || []).length;
+    if (goalCount > 0) {
+      return `You're tracking ${goalCount} goal${goalCount > 1 ? 's' : ''}, ${name}. Progress comes from consistent small steps, not occasional bursts. Link your daily tasks to your bigger goals, and celebrate small wins along the way.`;
+    }
+    return `Setting clear goals helps everything else fall into place. Try breaking big ambitions into yearly → monthly → weekly → daily milestones. What's one thing you'd love to accomplish this week?`;
+  }
+
+  // Study and learning
+  if (lower.includes("study") || lower.includes("learn") || lower.includes("exam") || lower.includes("test") || lower.includes("homework")) {
+    return `For effective studying, ${name}, try active recall (test yourself) rather than passive re-reading. Space out your sessions over days, not hours. The Pomodoro technique (25 min work, 5 min break) works great for most people.`;
+  }
+
+  // Habits and routine
+  if (lower.includes("habit") || lower.includes("routine") || lower.includes("consistent") || lower.includes("daily")) {
+    return `Building habits takes about 21-66 days of consistency. Start small — a 5-minute daily habit is better than a 1-hour habit you abandon. Stack new habits onto existing ones (e.g., "after I brush my teeth, I'll review my tasks").`;
+  }
+
+  // Help and guidance
+  if (lower.includes("help") || lower.includes("how do i") || lower.includes("what can you") || lower.includes("guide")) {
+    return `I'm here to help you stay organized and productive, ${name}! I can help you prioritize tasks, suggest focus techniques, break down overwhelming projects, and keep your schedule on track. Just tell me what's on your mind.`;
+  }
+
+  // Greetings
+  if (lower.includes("hello") || lower.includes("hi") || lower.includes("hey") || lower.match(/^(good\s)?(morning|afternoon|evening)/)) {
+    const hour = new Date().getHours();
+    const timeOfDay = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+    return `Good ${timeOfDay}, ${name}! ${taskCount > 0 ? `You have ${taskCount} active task${taskCount > 1 ? 's' : ''} to work on. ` : ""}How can I help you stay productive today?`;
+  }
+
+  // Thank you responses
+  if (lower.includes("thank") || lower.includes("thanks") || lower.includes("appreciate")) {
+    return `You're welcome, ${name}! Keep up the great work. I'm here whenever you need a nudge or some planning help.`;
+  }
+
+  // Confusion or unclear
+  if (lower.includes("confused") || lower.includes("don't understand") || lower.includes("unclear") || lower.includes("lost")) {
+    return `No worries, ${name}. Let's simplify: What's the ONE thing you want to accomplish today? Start there, and we can build out from that single focus point.`;
+  }
+
+  // Default fallback - contextual based on user state
+  const defaultResponses = [
+    `Good question, ${name}. In general: keep your highest‑priority tasks in your most productive time of day, use 30‑minute chunks so nothing feels impossible, and avoid stacking all the hard work right before deadlines.`,
+    `I'm here to help, ${name}. Try breaking your work into focused 25-minute blocks with short breaks in between. What's the most important thing you need to tackle today?`,
+    `Let me help you think through this, ${name}. Start with what's most urgent, then move to what's important. Small consistent progress beats occasional marathon sessions.`,
+    `That's a thoughtful question, ${name}. The key to productivity is matching your hardest work to your peak energy times. When do you feel most focused during the day?`,
+  ];
+
+  // Add context-aware default
+  if (taskCount > 0 && hasDeadlineSoon) {
+    return `${name}, I see you have ${taskCount} task${taskCount > 1 ? 's' : ''} with something due soon. Focus on the most urgent one first, even if just for 25 minutes. Small progress is still progress!`;
+  }
+
+  if (taskCount > 5) {
+    return `You have quite a few tasks on your plate, ${name} (${taskCount} active). Consider using the Eisenhower Matrix to sort them by urgency and importance. Would you like help prioritizing?`;
+  }
+
+  if (taskCount === 0) {
+    return `Your task list is clear, ${name}! This is a great time to add upcoming tasks or work on your bigger goals. What's on the horizon for you?`;
+  }
+
+  // Random selection from default responses for variety
+  return defaultResponses[Math.floor(Math.random() * defaultResponses.length)] + " If you tell me which task feels most important today, I can help you choose the best starting point.";
 }
 
 // ---------- Restore ----------

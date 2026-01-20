@@ -55,13 +55,13 @@ const DEEPSEEK_MODEL = (process.env.DEEPSEEK_MODEL || "deepseek-chat").trim();
 const OPENAI_API_KEY = normalizeApiKey(process.env.OPENAI_API_KEY);
 const OPENAI_BASE_URL =
   (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1/chat/completions").trim();
-const OPENAI_MODEL = (process.env.OPENAI_MODEL || "gpt-4o-mini").trim();
+const OPENAI_MODEL = (process.env.OPENAI_MODEL || "gpt-5.2").trim();
 
 const GEMINI_API_KEY = normalizeApiKey(process.env.GEMINI_API_KEY);
 const GEMINI_BASE_URL = (process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com/v1beta")
   .trim()
   .replace(/\/+$/, "");
-const GEMINI_MODEL = (process.env.GEMINI_MODEL || "gemini-1.5-flash").trim();
+const GEMINI_MODEL = (process.env.GEMINI_MODEL || "gemini-3-pro-preview").trim();
 
 const SUPPORTED_LLM_PROVIDERS = new Set(["deepseek", "openai", "gemini"]);
 if (!SUPPORTED_LLM_PROVIDERS.has(LLM_PROVIDER)) {
