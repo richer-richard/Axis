@@ -13,6 +13,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { SocksProxyAgent } = require("socks-proxy-agent");
 const { HttpsProxyAgent } = require("https-proxy-agent");
+const { fetch: undiciFetch, Agent } = require("undici");
 require("dotenv").config();
 
 const app = express();
@@ -713,8 +714,13 @@ async function callGemini({
       },
       body: JSON.stringify(payload),
     };
-    if (proxyAgent) fetchOptions.dispatcher = proxyAgent;
-    response = await fetch(endpoint, fetchOptions);
+    // Use undici fetch with dispatcher for proxy support (Gemini requires undici)
+    if (proxyAgent) {
+      fetchOptions.dispatcher = proxyAgent;
+      response = await undiciFetch(endpoint, fetchOptions);
+    } else {
+      response = await fetch(endpoint, fetchOptions);
+    }
   } catch (fetchErr) {
     console.error("[Gemini] Fetch failed:", fetchErr.message);
     console.error("[Gemini] Fetch error cause:", fetchErr.cause);
