@@ -14,6 +14,7 @@ const jwt = require("jsonwebtoken");
 const { SocksProxyAgent } = require("socks-proxy-agent");
 const { HttpsProxyAgent } = require("https-proxy-agent");
 const { fetch: undiciFetch, Agent } = require("undici");
+const nodeFetch = require("node-fetch");
 require("dotenv").config();
 
 const app = express();
@@ -704,6 +705,7 @@ async function callGemini({
   console.log("[Gemini] Request to:", endpoint.replace(/key=[^&]+/, "key=***"));
   console.log("[Gemini] Model:", modelName);
   console.log("[Gemini] Payload keys:", Object.keys(payload));
+  console.log("[Gemini] Using proxy:", proxyAgent ? "yes" : "no");
 
   let response;
   try {
@@ -714,10 +716,10 @@ async function callGemini({
       },
       body: JSON.stringify(payload),
     };
-    // Use undici fetch with dispatcher for proxy support (Gemini requires undici)
+    // Use node-fetch with agent option for proxy support (native fetch doesn't support agent)
     if (proxyAgent) {
-      fetchOptions.dispatcher = proxyAgent;
-      response = await undiciFetch(endpoint, fetchOptions);
+      fetchOptions.agent = proxyAgent;
+      response = await nodeFetch(endpoint, fetchOptions);
     } else {
       response = await fetch(endpoint, fetchOptions);
     }
@@ -1105,7 +1107,7 @@ async function callGeminiStream({
     },
   };
 
-  const response = await fetch(endpoint, {
+  const fetchOptions = {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1113,7 +1115,16 @@ async function callGeminiStream({
     },
     body: JSON.stringify(payload),
     signal,
-  });
+  };
+
+  // Use node-fetch with agent option for proxy support
+  let response;
+  if (proxyAgent) {
+    fetchOptions.agent = proxyAgent;
+    response = await nodeFetch(endpoint, fetchOptions);
+  } else {
+    response = await fetch(endpoint, fetchOptions);
+  }
 
   if (!response.ok) {
     const text = await response.text();
