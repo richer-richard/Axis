@@ -1407,6 +1407,7 @@ function ensureAxisUserDataShape(data) {
       blockingRules: [],
       dailyHabits: [],
       focusSessions: [],
+      assistantHistory: [],
       weeklyInsights: null,
       achievements: {},
       taskTemplates: [],
@@ -1431,6 +1432,7 @@ function ensureAxisUserDataShape(data) {
     blockingRules: Array.isArray(data.blockingRules) ? data.blockingRules : [],
     dailyHabits: Array.isArray(data.dailyHabits) ? data.dailyHabits : [],
     focusSessions: Array.isArray(data.focusSessions) ? data.focusSessions : [],
+    assistantHistory: Array.isArray(data.assistantHistory) ? data.assistantHistory : [],
     weeklyInsights: data.weeklyInsights ?? null,
     achievements: data.achievements && typeof data.achievements === "object" ? data.achievements : {},
     taskTemplates: Array.isArray(data.taskTemplates) ? data.taskTemplates : [],
@@ -1489,6 +1491,233 @@ function createAxisTask(input) {
   };
 }
 
+function localDateKey(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return "";
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+const GOAL_COLOR_PALETTE = [
+  { bg: "rgba(139, 92, 246, 0.15)", border: "rgba(139, 92, 246, 0.3)", text: "#7c3aed" },
+  { bg: "rgba(14, 165, 233, 0.15)", border: "rgba(14, 165, 233, 0.3)", text: "#0284c7" },
+  { bg: "rgba(236, 72, 153, 0.15)", border: "rgba(236, 72, 153, 0.3)", text: "#db2777" },
+  { bg: "rgba(34, 197, 94, 0.15)", border: "rgba(34, 197, 94, 0.3)", text: "#16a34a" },
+  { bg: "rgba(251, 146, 60, 0.15)", border: "rgba(251, 146, 60, 0.3)", text: "#ea580c" },
+  { bg: "rgba(168, 85, 247, 0.15)", border: "rgba(168, 85, 247, 0.3)", text: "#7c3aed" },
+];
+
+function normalizeGoalLevel(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "lifetime";
+  const normalized = raw.replace(/[^a-z]+/g, "-");
+  const mapping = {
+    lifetime: "lifetime",
+    life: "lifetime",
+    "long-term": "lifetime",
+    longterm: "lifetime",
+    yearly: "yearly",
+    annual: "yearly",
+    year: "yearly",
+    seasonal: "seasonal",
+    quarterly: "seasonal",
+    quarter: "seasonal",
+    monthly: "monthly",
+    month: "monthly",
+    weekly: "weekly",
+    week: "weekly",
+    daily: "daily",
+    day: "daily",
+  };
+  return mapping[normalized] || "lifetime";
+}
+
+function clampGoalProgress(value) {
+  if (value === undefined || value === null) return 0;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function normalizeGoalMilestones(value) {
+  const fallback = [25, 50, 75];
+  if (!value) return fallback;
+  const arr = Array.isArray(value)
+    ? value
+    : String(value)
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean);
+  const cleaned = arr
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n))
+    .map((n) => Math.max(0, Math.min(100, Math.round(n))));
+  const unique = Array.from(new Set(cleaned)).sort((a, b) => a - b);
+  return unique.length ? unique : fallback;
+}
+
+function goalSlug(goal) {
+  const name = typeof goal === "string" ? goal : goal?.name;
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+}
+
+function defaultGoalDates(level) {
+  if (level === "lifetime") {
+    return { startDate: "", endDate: "" };
+  }
+
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+
+  if (level === "yearly") {
+    start.setMonth(0, 1);
+    end.setMonth(11, 31);
+  } else if (level === "seasonal") {
+    const quarterStart = Math.floor(start.getMonth() / 3) * 3;
+    start.setMonth(quarterStart, 1);
+    end.setMonth(quarterStart + 3, 0);
+  } else if (level === "monthly") {
+    start.setDate(1);
+    end.setMonth(end.getMonth() + 1, 0);
+  } else if (level === "weekly") {
+    const dow = (start.getDay() + 6) % 7;
+    start.setDate(start.getDate() - dow);
+    end.setDate(start.getDate() + 6);
+  } else if (level === "daily") {
+    // keep today
+  }
+
+  return { startDate: localDateKey(start), endDate: localDateKey(end) };
+}
+
+function createAxisGoal(input, index = 0) {
+  const name = String(input?.name || "").trim();
+  const level = normalizeGoalLevel(input?.level);
+  const id = `goal_${Date.now()}_${crypto.randomBytes(6).toString("hex")}`;
+  const color = GOAL_COLOR_PALETTE[index % GOAL_COLOR_PALETTE.length];
+
+  let startDate = String(input?.startDate || "").trim();
+  let endDate = String(input?.endDate || "").trim();
+  if (!startDate && !endDate) {
+    const defaults = defaultGoalDates(level);
+    startDate = defaults.startDate;
+    endDate = defaults.endDate;
+  }
+
+  return {
+    id,
+    name,
+    level,
+    parentId: input?.parentId ? String(input.parentId).trim() : null,
+    color,
+    createdAt: new Date().toISOString(),
+    manualProgress: clampGoalProgress(input?.manualProgress),
+    milestones: normalizeGoalMilestones(input?.milestones),
+    startDate,
+    endDate,
+    completed: false,
+    completedAt: "",
+  };
+}
+
+function ensureDailyGoalTask(data, goal) {
+  if (!goal || goal.level !== "daily") return { created: false, updated: false };
+  if (!Array.isArray(data.tasks)) data.tasks = [];
+  const slug = goalSlug(goal);
+  const existing = data.tasks.find((t) => t?.fromDailyGoal && t?.goalId === goal.id);
+  if (!existing) {
+    data.tasks.push({
+      id: `task_goal_${goal.id}`,
+      task_name: goal.name,
+      task_priority: "Important, Not Urgent",
+      task_category: slug || "study",
+      task_deadline: localDateKey(new Date()),
+      task_deadline_time: "23:59",
+      task_duration_hours: 1,
+      computer_required: false,
+      completed: false,
+      fromDailyGoal: true,
+      goalId: goal.id,
+      createdAt: new Date().toISOString(),
+    });
+    return { created: true, updated: false };
+  }
+
+  let updated = false;
+  if (goal.name && existing.task_name !== goal.name) {
+    existing.task_name = goal.name;
+    updated = true;
+  }
+  if (slug && existing.task_category !== slug) {
+    existing.task_category = slug;
+    updated = true;
+  }
+
+  return { created: false, updated };
+}
+
+function removeDailyGoalTasks(data, goalId) {
+  if (!Array.isArray(data.tasks)) return false;
+  const removedIds = new Set();
+  data.tasks = data.tasks.filter((t) => {
+    if (t?.fromDailyGoal && t?.goalId === goalId) {
+      if (t?.id) removedIds.add(String(t.id));
+      return false;
+    }
+    return true;
+  });
+  if (removedIds.size && Array.isArray(data.schedule)) {
+    data.schedule = data.schedule.filter((b) => !removedIds.has(String(b?.taskId || "")));
+  }
+  return removedIds.size > 0;
+}
+
+const ASSISTANT_HISTORY_LIMIT = 20;
+const ASSISTANT_HISTORY_CONTEXT = 12;
+
+function ensureAssistantHistory(data) {
+  if (!Array.isArray(data.assistantHistory)) {
+    data.assistantHistory = [];
+  }
+  return data.assistantHistory;
+}
+
+function appendAssistantHistory(data, entries) {
+  const history = ensureAssistantHistory(data);
+  const list = Array.isArray(entries) ? entries : [entries];
+  let changed = false;
+  list.forEach((entry) => {
+    if (!entry || typeof entry !== "object") return;
+    const role = entry.role === "assistant" ? "assistant" : "user";
+    const content = String(entry.content || "").trim();
+    if (!content) return;
+    history.push({
+      role,
+      content: content.slice(0, 1200),
+      ts: new Date().toISOString(),
+    });
+    changed = true;
+  });
+  if (history.length > ASSISTANT_HISTORY_LIMIT) {
+    history.splice(0, history.length - ASSISTANT_HISTORY_LIMIT);
+  }
+  return changed;
+}
+
+function formatAssistantHistory(data, limit = ASSISTANT_HISTORY_CONTEXT) {
+  const history = Array.isArray(data.assistantHistory) ? data.assistantHistory : [];
+  if (!history.length) return "";
+  return history
+    .slice(-limit)
+    .map((entry) => `${entry.role === "assistant" ? "Assistant" : "User"}: ${entry.content}`)
+    .join("\n");
+}
+
 function buildAssistantSnapshot(data) {
   const safeData = ensureAxisUserDataShape(data);
   const tasks = safeData.tasks.slice(0, 120).map((t) => ({
@@ -1500,6 +1729,17 @@ function buildAssistantSnapshot(data) {
     deadlineTime: String(t?.task_deadline_time || t?.deadlineTime || ""),
     durationHours: Number(t?.task_duration_hours ?? t?.durationHours ?? t?.estimatedHours ?? 0) || 0,
     completed: Boolean(t?.completed),
+  }));
+
+  const goals = safeData.goals.slice(0, 120).map((g) => ({
+    id: String(g?.id || ""),
+    name: String(g?.name || "").slice(0, 180),
+    level: String(g?.level || ""),
+    parentId: String(g?.parentId || ""),
+    startDate: String(g?.startDate || ""),
+    endDate: String(g?.endDate || ""),
+    manualProgress: Number(g?.manualProgress ?? g?.progress ?? 0) || 0,
+    completed: Boolean(g?.completed),
   }));
 
   const schedule = safeData.schedule.slice(0, 200).map((b) => ({
@@ -1540,6 +1780,7 @@ function buildAssistantSnapshot(data) {
   return {
     profile: profileBrief,
     tasks,
+    goals,
     schedule,
     fixedBlocks,
     dailyHabits,
@@ -1833,7 +2074,12 @@ app.get("/api/user/data", authenticateToken, async (req, res) => {
 
 app.post("/api/user/data", authenticateToken, async (req, res) => {
   try {
-    await saveUserData(req.user.userId, req.body);
+    const existing = await getUserData(req.user.userId);
+    const incoming = req.body && typeof req.body === "object" ? req.body : {};
+    if (incoming.assistantHistory === undefined && Array.isArray(existing?.assistantHistory)) {
+      incoming.assistantHistory = existing.assistantHistory;
+    }
+    await saveUserData(req.user.userId, incoming);
     res.json({ success: true });
   } catch (err) {
     console.error("Save user data error:", err);
@@ -2093,6 +2339,32 @@ const assistantDeleteHabitSchema = z.object({
   id: z.string().min(1).max(200),
 });
 
+const goalCreateSchema = z.object({
+  name: z.string().min(1).max(200),
+  level: z.string().optional(),
+  parentId: z.string().optional().nullable(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  manualProgress: z.number().min(0).max(100).optional(),
+  milestones: z.array(z.number()).optional(),
+});
+
+const goalUpdateSchema = z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().min(1).max(200).optional(),
+  level: z.string().optional(),
+  parentId: z.string().optional().nullable(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  manualProgress: z.number().min(0).max(100).optional(),
+  milestones: z.array(z.number()).optional(),
+  completed: z.boolean().optional(),
+});
+
+const assistantDeleteGoalSchema = z.object({
+  id: z.string().min(1).max(200),
+});
+
 const assistantRebalanceSchema = z.object({
   horizonDays: z.number().int().min(1).max(21).optional().default(7),
   maxHoursPerDay: z.number().min(1).max(16).optional().default(10),
@@ -2101,7 +2373,7 @@ const assistantRebalanceSchema = z.object({
 const ASSISTANT_TOOLS = [
   {
     name: "get_snapshot",
-    description: "Get a compact snapshot of the user's profile, tasks, schedule, fixed blocks, and daily habits.",
+    description: "Get a compact snapshot of the user's profile, tasks, goals, schedule, fixed blocks, and daily habits.",
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -2152,6 +2424,51 @@ const ASSISTANT_TOOLS = [
   {
     name: "delete_task",
     description: "Delete an existing task by id (only if the user explicitly asked to delete).",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: { id: { type: "string" } },
+    },
+  },
+  {
+    name: "create_goal",
+    description: "Create a new goal (name + timeframe level, optional parentId and dates).",
+    inputSchema: {
+      type: "object",
+      required: ["name"],
+      properties: {
+        name: { type: "string" },
+        level: { type: "string" },
+        parentId: { type: "string" },
+        startDate: { type: "string" },
+        endDate: { type: "string" },
+        manualProgress: { type: "number" },
+        milestones: { type: "array", items: { type: "number" } },
+      },
+    },
+  },
+  {
+    name: "update_goal",
+    description: "Update an existing goal by id (rename, change level, dates, progress, or parent).",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string" },
+        name: { type: "string" },
+        level: { type: "string" },
+        parentId: { type: "string" },
+        startDate: { type: "string" },
+        endDate: { type: "string" },
+        manualProgress: { type: "number" },
+        milestones: { type: "array", items: { type: "number" } },
+        completed: { type: "boolean" },
+      },
+    },
+  },
+  {
+    name: "delete_goal",
+    description: "Delete a goal by id (only if the user explicitly asked to delete).",
     inputSchema: {
       type: "object",
       required: ["id"],
@@ -2409,6 +2726,90 @@ async function executeAssistantTool({ name, args, userId, data, req }) {
     return { success: true };
   }
 
+  if (toolName === "create_goal") {
+    const parsed = goalCreateSchema.safeParse(input);
+    if (!parsed.success) throw new Error("Invalid create_goal arguments");
+    const safeData = ensureAxisUserDataShape(data);
+    const goal = createAxisGoal(parsed.data, safeData.goals.length);
+    safeData.goals.push(goal);
+    if (goal.level === "daily") {
+      ensureDailyGoalTask(safeData, goal);
+      data.tasks = safeData.tasks;
+    }
+    data.goals = safeData.goals;
+    return { goal };
+  }
+
+  if (toolName === "update_goal") {
+    const parsed = goalUpdateSchema.safeParse(input);
+    if (!parsed.success) throw new Error("Invalid update_goal arguments");
+    const safeData = ensureAxisUserDataShape(data);
+    const idx = safeData.goals.findIndex((g) => g && String(g.id) === parsed.data.id);
+    if (idx < 0) throw new Error("Goal not found");
+
+    const existing = safeData.goals[idx] && typeof safeData.goals[idx] === "object" ? safeData.goals[idx] : {};
+    const patch = parsed.data;
+    const prevLevel = normalizeGoalLevel(existing.level);
+
+    if (patch.name !== undefined) existing.name = String(patch.name || "").trim();
+    if (patch.level !== undefined) existing.level = normalizeGoalLevel(patch.level);
+    if (patch.parentId !== undefined) {
+      existing.parentId = patch.parentId ? String(patch.parentId).trim() : null;
+    }
+    if (patch.startDate !== undefined) existing.startDate = String(patch.startDate || "").trim();
+    if (patch.endDate !== undefined) existing.endDate = String(patch.endDate || "").trim();
+    if (patch.manualProgress !== undefined) existing.manualProgress = clampGoalProgress(patch.manualProgress);
+    if (patch.milestones !== undefined) existing.milestones = normalizeGoalMilestones(patch.milestones);
+    if (patch.completed !== undefined) {
+      existing.completed = Boolean(patch.completed);
+      existing.completedAt = existing.completed ? new Date().toISOString() : "";
+    }
+    existing.updatedAt = new Date().toISOString();
+
+    safeData.goals[idx] = existing;
+    data.goals = safeData.goals;
+
+    if (prevLevel === "daily" && existing.level !== "daily") {
+      removeDailyGoalTasks(safeData, existing.id);
+      data.tasks = safeData.tasks;
+      data.schedule = safeData.schedule;
+    } else if (existing.level === "daily") {
+      ensureDailyGoalTask(safeData, existing);
+      data.tasks = safeData.tasks;
+    }
+
+    return { goal: existing };
+  }
+
+  if (toolName === "delete_goal") {
+    const parsed = assistantDeleteGoalSchema.safeParse(input);
+    if (!parsed.success) throw new Error("Invalid delete_goal arguments");
+    const safeData = ensureAxisUserDataShape(data);
+    const idx = safeData.goals.findIndex((g) => g && String(g.id) === parsed.data.id);
+    if (idx < 0) throw new Error("Goal not found");
+    const goal = safeData.goals[idx];
+    safeData.goals = safeData.goals.filter((g) => g && String(g.id) !== parsed.data.id);
+
+    if (goal?.level === "daily") {
+      removeDailyGoalTasks(safeData, parsed.data.id);
+      data.tasks = safeData.tasks;
+      data.schedule = safeData.schedule;
+    }
+
+    const slug = goalSlug(goal);
+    if (slug && Array.isArray(safeData.tasks)) {
+      safeData.tasks.forEach((t) => {
+        if (!t || typeof t !== "object") return;
+        if (t.goalId === parsed.data.id) t.goalId = null;
+        if (t.task_category === slug) t.task_category = "study";
+      });
+      data.tasks = safeData.tasks;
+    }
+
+    data.goals = safeData.goals;
+    return { success: true };
+  }
+
   if (toolName === "add_habit") {
     const parsed = habitCreateSchema.safeParse(input);
     if (!parsed.success) throw new Error("Invalid add_habit arguments");
@@ -2461,20 +2862,26 @@ async function executeAssistantTool({ name, args, userId, data, req }) {
   throw new Error(`Unknown tool: ${toolName}`);
 }
 
-function buildAssistantPlannerPrompt({ message, snapshot }) {
+function buildAssistantPlannerPrompt({ message, snapshot, history }) {
   const toolsJson = JSON.stringify(ASSISTANT_TOOLS, null, 2);
   const snapshotJson = JSON.stringify(snapshot, null, 2);
+  const historyBlock = history ? `Recent conversation (most recent last):\n${history}` : "Recent conversation: (none)";
   return `
 You are an agent running inside Axis (a student planner). You can take actions via tools.
 
 Rules:
 - You MUST return strict JSON only matching: {"assistant_reply":"string","tool_calls":[{"name":"tool","arguments":{...}}]}.
 - Only call tools from the provided tool list.
+- Use the conversation history to resolve references and keep context.
 - If the user request is ambiguous, ask a clarifying question in assistant_reply and leave tool_calls empty.
-- Never invent task or habit IDs; use snapshot/listed IDs.
+- Never invent task, habit, or goal IDs; use snapshot/listed IDs.
 - Do NOT delete anything unless the user explicitly asked.
 - Keep tool_calls minimal (0–4 is ideal).
-- If the user asks to add/edit tasks, use create_task/update_task. Only rebalance_schedule if the user asks to change/rebalance the schedule.
+- If the user asks to add/edit tasks, use create_task/update_task. If the user asks to manage goals, use create_goal/update_goal.
+- Only rebalance_schedule if the user asks to change/rebalance the schedule.
+- assistant_reply may use Markdown (bullets, **bold**, *italics*, ++underline++, $math$).
+
+${historyBlock}
 
 User message:
 ${message}
@@ -2487,12 +2894,16 @@ ${toolsJson}
 `.trim();
 }
 
-function buildAssistantFinalPrompt({ message, toolResults }) {
+function buildAssistantFinalPrompt({ message, toolResults, history }) {
   const resultsJson = JSON.stringify(toolResults, null, 2);
+  const historyBlock = history ? `Recent conversation (most recent last):\n${history}` : "Recent conversation: (none)";
   return `
 Return JSON only: {"reply":"..."}.
 
 Write a concise, helpful response to the user. Summarize what you changed (if anything), and suggest the next best step.
+The reply may include Markdown (bullets, **bold**, *italics*, ++underline++, $math$). Keep JSON valid by escaping newlines as \\n.
+
+${historyBlock}
 
 User message:
 ${message}
@@ -2502,13 +2913,17 @@ ${resultsJson}
 `.trim();
 }
 
-function buildAssistantFinalTextPrompt({ message, toolResults }) {
+function buildAssistantFinalTextPrompt({ message, toolResults, history }) {
   const resultsJson = JSON.stringify(toolResults, null, 2);
+  const historyBlock = history ? `Recent conversation (most recent last):\n${history}` : "Recent conversation: (none)";
   return `
-Write the final user-facing reply in plain text (no JSON, no markdown fences).
+Write the final user-facing reply in Markdown (no JSON).
 Be concise, but include any important outcomes:
-- What you changed (tasks, habits, schedule).
+- What you changed (tasks, habits, goals, schedule).
 - If something failed, say what and what to do next.
+Use Markdown for formatting. For underline, use ++text++. For formulas, use $...$ or $$...$$.
+
+${historyBlock}
 
 User message:
 ${message}
@@ -2548,12 +2963,13 @@ app.post(
       const provider = resolveProviderForUserData(data);
       const snapshot = buildAssistantSnapshot(data);
       const message = req.body.message;
+      const history = formatAssistantHistory(data);
 
       const planResult = await callLlmWithJsonRepair({
         provider,
         system:
-          "You are Axis Assistant, an agent that can update the user's planner via tools. Return strict JSON only. Never include markdown fences.",
-        user: buildAssistantPlannerPrompt({ message, snapshot }),
+          "You are Axis Assistant, an agent that can update the user's planner via tools (tasks, goals, habits, schedule). Return strict JSON only. Do not wrap JSON in markdown fences.",
+        user: buildAssistantPlannerPrompt({ message, snapshot, history }),
         temperature: 0.15,
         maxTokens: 900,
         schema: assistantPlannerResponseSchema,
@@ -2588,34 +3004,36 @@ app.post(
         }
       }
 
-      if (changed) {
+      let reply = planResult.data.assistant_reply;
+
+      if (toolCalls.length) {
+        const finalResult = await callLlmWithJsonRepair({
+          provider,
+          system:
+            "You are Axis Assistant. Produce the final user-facing message. Return strict JSON only. Do not wrap JSON in markdown fences.",
+          user: buildAssistantFinalPrompt({ message, toolResults, history }),
+          temperature: 0.2,
+          maxTokens: 700,
+          schema: assistantFinalResponseSchema,
+          schemaHint: '{"reply":"string"}',
+        });
+
+        if (finalResult.ok) {
+          reply = finalResult.data.reply;
+        }
+      }
+
+      const historyChanged = appendAssistantHistory(data, [
+        { role: "user", content: message },
+        { role: "assistant", content: reply },
+      ]);
+      if (changed || historyChanged) {
         await saveUserData(userId, data);
       }
 
-      if (!toolCalls.length) {
-        return res.json({ reply: planResult.data.assistant_reply, data });
-      }
-
-      const finalResult = await callLlmWithJsonRepair({
-        provider,
-        system:
-          "You are Axis Assistant. Produce the final user-facing message. Return strict JSON only. Never include markdown fences.",
-        user: buildAssistantFinalPrompt({ message, toolResults }),
-        temperature: 0.2,
-        maxTokens: 700,
-        schema: assistantFinalResponseSchema,
-        schemaHint: '{"reply":"string"}',
-      });
-
-      if (!finalResult.ok) {
-        return res.json({
-          reply: planResult.data.assistant_reply,
-          toolResults,
-          data,
-        });
-      }
-
-      res.json({ reply: finalResult.data.reply, toolResults, data });
+      const response = { reply, data };
+      if (toolCalls.length) response.toolResults = toolResults;
+      res.json(response);
     } catch (err) {
       console.error("assistant agent error:", err);
       res.status(500).json({ error: err.message || "Assistant failed" });
@@ -2645,6 +3063,7 @@ app.post(
       const provider = resolveProviderForUserData(data);
       const snapshot = buildAssistantSnapshot(data);
       const message = req.body.message;
+      const history = formatAssistantHistory(data);
 
       sseSend(res, "meta", { provider });
       sseSend(res, "status", { stage: "planning" });
@@ -2652,8 +3071,8 @@ app.post(
       const planResult = await callLlmWithJsonRepair({
         provider,
         system:
-          "You are Axis Assistant, an agent that can update the user's planner via tools. Return strict JSON only. Never include markdown fences.",
-        user: buildAssistantPlannerPrompt({ message, snapshot }),
+          "You are Axis Assistant, an agent that can update the user's planner via tools (tasks, goals, habits, schedule). Return strict JSON only. Do not wrap JSON in markdown fences.",
+        user: buildAssistantPlannerPrompt({ message, snapshot, history }),
         temperature: 0.15,
         maxTokens: 900,
         schema: assistantPlannerResponseSchema,
@@ -2696,12 +3115,15 @@ app.post(
         }
       }
 
-      if (changed) {
-        await saveUserData(userId, data);
-      }
-
       if (!toolCalls.length) {
         const reply = planResult.data.assistant_reply;
+        const historyChanged = appendAssistantHistory(data, [
+          { role: "user", content: message },
+          { role: "assistant", content: reply },
+        ]);
+        if (changed || historyChanged) {
+          await saveUserData(userId, data);
+        }
         sseSend(res, "token", { token: reply });
         sseSend(res, "result", { reply, toolResults, data });
         sseSend(res, "done", {});
@@ -2714,14 +3136,22 @@ app.post(
       let reply = "";
       reply = await callLlmStream({
         system:
-          "You are Axis Assistant. Write the final user-facing reply only (plain text). Do not output JSON or markdown fences.",
-        user: buildAssistantFinalTextPrompt({ message, toolResults }),
+          "You are Axis Assistant. Write the final user-facing reply in Markdown only (no JSON).",
+        user: buildAssistantFinalTextPrompt({ message, toolResults, history }),
         temperature: 0.25,
         maxTokens: 700,
         provider,
         onToken: (token) => sseSend(res, "token", { token }),
         signal: abort.signal,
       });
+
+      const historyChanged = appendAssistantHistory(data, [
+        { role: "user", content: message },
+        { role: "assistant", content: reply },
+      ]);
+      if (changed || historyChanged) {
+        await saveUserData(userId, data);
+      }
 
       sseSend(res, "result", { reply, toolResults, data });
       sseSend(res, "done", {});
@@ -3298,6 +3728,7 @@ app.post("/api/chat/stream", async (req, res) => {
     "You help students prioritize tasks, manage time, and reduce procrastination.",
     "Be concrete and actionable; ask a clarifying question when needed.",
     "Avoid long essays; prefer short bullets when helpful.",
+    "Use Markdown for formatting (bullets, **bold**, *italics*, ++underline++, $math$).",
   ].join(" ");
 
   let userContent = message;
@@ -3338,7 +3769,8 @@ app.post("/api/chat", async (req, res) => {
     const systemPrompt =
       "You are Axis, a supportive, gender-neutral, professional AI study planner. " +
       "You help students prioritize tasks, manage time, combat procrastination, and protect work-life balance. " +
-      "Keep answers short, concrete, and actionable. Never encourage procrastination.";
+      "Keep answers short, concrete, and actionable. Never encourage procrastination. " +
+      "Use Markdown for formatting (bullets, **bold**, *italics*, ++underline++, $math$).";
 
     let userContent = message;
     if (context && typeof context === "string") {

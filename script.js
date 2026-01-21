@@ -8531,48 +8531,81 @@ function startCountdown(block) {
 
 // ---------- Chatbot ----------
 
-// Simple markdown parser for chatbot messages
-function parseMarkdown(text) {
-  if (!text) return "";
-  
-  // Escape HTML to prevent XSS
-  let html = text
+let markdownRenderer = null;
+
+function getMarkdownRenderer() {
+  if (markdownRenderer) return markdownRenderer;
+  if (typeof window !== "undefined" && window.markdownit) {
+    const md = window.markdownit({
+      html: false,
+      linkify: true,
+      breaks: true,
+      typographer: true,
+    });
+    if (window.markdownitKatex) {
+      md.use(window.markdownitKatex);
+    }
+    if (window.markdownitIns) {
+      md.use(window.markdownitIns);
+    }
+    markdownRenderer = md;
+    return md;
+  }
+  return null;
+}
+
+function escapeHtml(text) {
+  return String(text || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-  
-  // Use placeholders to avoid conflicts between bold and italic
-  const placeholders = [];
-  let placeholderIndex = 0;
-  
-  // First, replace bold **text** with placeholders
-  html = html.replace(/\*\*(.+?)\*\*/g, (match, content) => {
-    const placeholder = `__BOLDPLACEHOLDER_${placeholderIndex}__`;
-    placeholders[placeholderIndex] = `<strong>${content}</strong>`;
-    placeholderIndex++;
-    return placeholder;
-  });
-  
-  // Then replace bold __text__ with placeholders
-  html = html.replace(/__(.+?)__/g, (match, content) => {
-    const placeholder = `__BOLDPLACEHOLDER_${placeholderIndex}__`;
-    placeholders[placeholderIndex] = `<strong>${content}</strong>`;
-    placeholderIndex++;
-    return placeholder;
-  });
-  
-  // Then process italic (single asterisk only, underscores are used for bold)
-  html = html.replace(/\*([^*\n]+?)\*/g, "<em>$1</em>");
-  
-  // Restore bold placeholders
-  placeholders.forEach((replacement, index) => {
-    html = html.replace(`__BOLDPLACEHOLDER_${index}__`, replacement);
-  });
-  
-  // Line breaks: \n to <br>
+}
+
+function fallbackMarkdown(text) {
+  const raw = String(text || "");
+  if (!raw) return "";
+
+  const stash = [];
+  const stashToken = (value) => {
+    const token = `@@MD${stash.length}@@`;
+    stash.push({ token, value });
+    return token;
+  };
+
+  let html = raw;
+  html = html.replace(/```([\s\S]*?)```/g, (match, code) =>
+    stashToken(`<pre><code>${escapeHtml(code)}</code></pre>`),
+  );
+  html = html.replace(/`([^`\n]+?)`/g, (match, code) =>
+    stashToken(`<code>${escapeHtml(code)}</code>`),
+  );
+
+  html = escapeHtml(html);
+
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/__(.+?)__/g, "<strong>$1</strong>");
+  html = html.replace(/\+\+(.+?)\+\+/g, "<u>$1</u>");
+  html = html.replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, "$1<em>$2</em>");
+  html = html.replace(/(^|[^_])_([^_\n]+?)_(?!_)/g, "$1<em>$2</em>");
+  html = html.replace(/~~(.+?)~~/g, "<del>$1</del>");
   html = html.replace(/\n/g, "<br>");
-  
+
+  stash.forEach(({ token, value }) => {
+    html = html.split(token).join(value);
+  });
+
   return html;
+}
+
+// Markdown parser for chatbot messages (with fallback)
+function parseMarkdown(text) {
+  const raw = String(text || "");
+  if (!raw) return "";
+  const renderer = getMarkdownRenderer();
+  if (renderer) {
+    return renderer.render(raw);
+  }
+  return fallbackMarkdown(raw);
 }
 
 function initChatbot() {
@@ -8622,7 +8655,7 @@ function initChatbot() {
       const reply = await generateChatReply(text, {
         onToken: (fullText) => {
           accumulated = fullText;
-          botMsg.textContent = accumulated;
+          botMsg.innerHTML = parseMarkdown(accumulated);
           chatWindow.scrollTop = chatWindow.scrollHeight;
         },
       });

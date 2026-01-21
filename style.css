@@ -1345,7 +1345,7 @@ body {
   grid-template-columns: minmax(320px, 420px) minmax(0, 2fr);
   gap: 24px;
   padding: 22px 28px 32px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .sidebar {
@@ -1358,6 +1358,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  min-height: 100%;
 }
 
 .dashboard .panel {
@@ -1861,8 +1862,8 @@ body {
 
 .panel-chat.panel-chat-main {
   max-height: none;
-  flex: 1 0 300px;
-  min-height: 300px;
+  flex: 1 1 420px;
+  min-height: 420px;
 }
 
 .chat-window {
@@ -1901,6 +1902,83 @@ body {
   background: var(--bg-alt);
   border-bottom-left-radius: 4px;
   border: 1px solid var(--border-subtle);
+}
+
+.chat-message p,
+.chat-message ul,
+.chat-message ol,
+.chat-message pre,
+.chat-message blockquote,
+.chat-message table {
+  margin: 0 0 8px;
+}
+
+.chat-message p:last-child,
+.chat-message ul:last-child,
+.chat-message ol:last-child,
+.chat-message pre:last-child,
+.chat-message blockquote:last-child,
+.chat-message table:last-child {
+  margin-bottom: 0;
+}
+
+.chat-message ul,
+.chat-message ol {
+  padding-left: 18px;
+}
+
+.chat-message li {
+  margin: 4px 0;
+}
+
+.chat-message code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.78rem;
+  background: var(--surface-inset);
+  padding: 0 4px;
+  border-radius: 6px;
+}
+
+.chat-message pre {
+  background: var(--surface-inset);
+  border: 1px solid var(--border-subtle);
+  padding: 8px 10px;
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+.chat-message pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.chat-message blockquote {
+  border-left: 3px solid var(--accent-green);
+  padding-left: 10px;
+  color: var(--text-muted);
+}
+
+.chat-message a {
+  color: var(--accent-red);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.chat-message hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 10px 0;
+}
+
+.chat-message ins,
+.chat-message u {
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+}
+
+.chat-message .katex {
+  font-size: 0.95em;
 }
 
 .chat-input-row {
@@ -4806,6 +4884,10 @@ textarea {
   .panel {
     padding: 14px;
   }
+
+  .panel-chat.panel-chat-main {
+    min-height: 320px;
+  }
 }
 
 /* Mobile Responsiveness - Mobile */
@@ -4854,6 +4936,10 @@ textarea {
   .panel {
     padding: 12px;
     border-radius: var(--radius-md);
+  }
+
+  .panel-chat.panel-chat-main {
+    min-height: 260px;
   }
 
   .panel-header h2 {
