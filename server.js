@@ -707,48 +707,98 @@ async function callGemini({
   console.log("[Gemini] Payload keys:", Object.keys(payload));
   console.log("[Gemini] Using proxy:", proxyAgent ? "yes" : "no");
 
-  let response;
-  try {
-    const fetchOptions = {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    };
-    // Use node-fetch with agent option for proxy support (native fetch doesn't support agent)
-    if (proxyAgent) {
-      fetchOptions.agent = proxyAgent;
-      response = await nodeFetch(endpoint, fetchOptions);
-    } else {
-      response = await fetch(endpoint, fetchOptions);
-    }
-  } catch (fetchErr) {
-    console.error("[Gemini] Fetch failed:", fetchErr.message);
-    console.error("[Gemini] Fetch error cause:", fetchErr.cause);
-    throw fetchErr;
-  }
+  const MAX_RETRIES = 3;
+  let lastErr;
 
-  if (!response.ok) {
-    const text = await response.text();
-    console.error("[Gemini] API error status:", response.status);
-    console.error("[Gemini] API error headers:", Object.fromEntries(response.headers.entries()));
-    console.error("[Gemini] API error body:", text);
-    let errorMessage = "Upstream Gemini API error.";
-    const parsed = safeParseJSON(text);
-    if (parsed?.error?.message) {
-      errorMessage = parsed.error.message;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    let response;
+    try {
+      const fetchOptions = {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      };
+      // Use node-fetch with agent option for proxy support (native fetch doesn't support agent)
+      if (proxyAgent) {
+        fetchOptions.agent = proxyAgent;
+        response = await nodeFetch(endpoint, fetchOptions);
+      } else {
+        response = await fetch(endpoint, fetchOptions);
+      }
+    } catch (fetchErr) {
+      lastErr = fetchErr;
+      console.error(`[Gemini] Attempt ${attempt}/${MAX_RETRIES} fetch failed:`, fetchErr.message);
+      console.error("[Gemini] Fetch error cause:", fetchErr.cause);
+      const isRetryable = fetchErr.code === "ECONNRESET" || /ETIMEDOUT|ENOTFOUND|socket/i.test(fetchErr.message);
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const delay = 1000 * attempt;
+        console.log(`[Gemini] Retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw fetchErr;
     }
-    throw new Error(`${errorMessage} (status ${response.status})`);
-  }
 
-  const data = await response.json();
-  const parts = data.candidates?.[0]?.content?.parts;
-  const reply = Array.isArray(parts) ? parts.map((p) => p?.text || "").join("") : "";
-  if (!reply) {
-    throw new Error("Gemini reply missing content");
+    if (!response.ok) {
+      const text = await response.text();
+      console.error("[Gemini] API error status:", response.status);
+      console.error("[Gemini] API error headers:", Object.fromEntries(response.headers.entries()));
+      console.error("[Gemini] API error body:", text);
+      let errorMessage = "Upstream Gemini API error.";
+      const parsed = safeParseJSON(text);
+      if (parsed?.error?.message) {
+        errorMessage = parsed.error.message;
+      }
+      lastErr = new Error(`${errorMessage} (status ${response.status})`);
+      // Retry on 500/502/503/504 errors
+      const isRetryable = response.status >= 500 && response.status < 600;
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const delay = 1000 * attempt;
+        console.log(`[Gemini] Retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw lastErr;
+    }
+
+    const data = await response.json();
+    
+    // Check for safety block
+    const blockReason = data.promptFeedback?.blockReason;
+    if (blockReason) {
+      console.error("[Gemini] Prompt blocked by safety filter:", blockReason);
+      throw new Error(`Gemini blocked the prompt: ${blockReason}`);
+    }
+
+    const candidate = data.candidates?.[0];
+    const finishReason = candidate?.finishReason;
+    const parts = candidate?.content?.parts;
+    const reply = Array.isArray(parts) ? parts.map((p) => p?.text || "").join("") : "";
+    
+    if (!reply) {
+      // Log detailed info for debugging the known Gemini empty response bug
+      console.error(`[Gemini] Attempt ${attempt}/${MAX_RETRIES} - Empty content received`);
+      console.error("[Gemini] finishReason:", finishReason);
+      console.error("[Gemini] candidates:", JSON.stringify(data.candidates, null, 2));
+      console.error("[Gemini] promptFeedback:", JSON.stringify(data.promptFeedback, null, 2));
+      
+      lastErr = new Error("Gemini reply missing content");
+      // Known Gemini bug: empty response with STOP finish reason - retry
+      if (attempt < MAX_RETRIES) {
+        const delay = 1000 * attempt;
+        console.log(`[Gemini] Retrying in ${delay}ms due to empty response bug...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw lastErr;
+    }
+    
+    return reply.trim();
   }
-  return reply.trim();
+  
+  throw lastErr || new Error("Gemini request failed after retries");
 }
 
 async function callLlm(options) {
@@ -1107,60 +1157,119 @@ async function callGeminiStream({
     },
   };
 
-  const fetchOptions = {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "text/event-stream, application/json",
-    },
-    body: JSON.stringify(payload),
-    signal,
-  };
+  console.log("[Gemini Stream] Request to:", endpoint.replace(/key=[^&]+/, "key=***"));
+  console.log("[Gemini Stream] Model:", modelName);
+  console.log("[Gemini Stream] Using proxy:", proxyAgent ? "yes" : "no");
 
-  // Use node-fetch with agent option for proxy support
-  let response;
-  if (proxyAgent) {
-    fetchOptions.agent = proxyAgent;
-    response = await nodeFetch(endpoint, fetchOptions);
-  } else {
-    response = await fetch(endpoint, fetchOptions);
-  }
+  const MAX_RETRIES = 3;
+  let lastErr;
 
-  if (!response.ok) {
-    const text = await response.text();
-    console.error("Gemini API error:", response.status, text);
-    let errorMessage = "Upstream Gemini API error.";
-    const parsed = safeParseJSON(text);
-    if (parsed?.error?.message) {
-      errorMessage = parsed.error.message;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    let response;
+    try {
+      const fetchOptions = {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream, application/json",
+        },
+        body: JSON.stringify(payload),
+        signal,
+      };
+
+      // Use node-fetch with agent option for proxy support
+      if (proxyAgent) {
+        fetchOptions.agent = proxyAgent;
+        response = await nodeFetch(endpoint, fetchOptions);
+      } else {
+        response = await fetch(endpoint, fetchOptions);
+      }
+    } catch (fetchErr) {
+      lastErr = fetchErr;
+      // Don't retry if user aborted
+      if (fetchErr.name === "AbortError") throw fetchErr;
+      console.error(`[Gemini Stream] Attempt ${attempt}/${MAX_RETRIES} fetch failed:`, fetchErr.message);
+      const isRetryable = fetchErr.code === "ECONNRESET" || /ETIMEDOUT|ENOTFOUND|socket/i.test(fetchErr.message);
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const delay = 1000 * attempt;
+        console.log(`[Gemini Stream] Retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw fetchErr;
     }
-    throw new Error(`${errorMessage} (status ${response.status})`);
-  }
 
-  let full = "";
-  let last = "";
-  await readJsonLines(response, async (chunk) => {
-    const parts = chunk?.candidates?.[0]?.content?.parts;
-    const text = Array.isArray(parts) ? parts.map((p) => p?.text || "").join("") : "";
-    if (!text) return;
-    if (text.startsWith(last)) {
-      const delta = text.slice(last.length);
-      if (delta) {
-        full += delta;
+    if (!response.ok) {
+      const text = await response.text();
+      console.error("[Gemini Stream] API error status:", response.status);
+      console.error("[Gemini Stream] API error body:", text);
+      let errorMessage = "Upstream Gemini API error.";
+      const parsed = safeParseJSON(text);
+      if (parsed?.error?.message) {
+        errorMessage = parsed.error.message;
+      }
+      lastErr = new Error(`${errorMessage} (status ${response.status})`);
+      // Retry on 500/502/503/504 errors
+      const isRetryable = response.status >= 500 && response.status < 600;
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const delay = 1000 * attempt;
+        console.log(`[Gemini Stream] Retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw lastErr;
+    }
+
+    let full = "";
+    let last = "";
+    let hasContent = false;
+    
+    await readJsonLines(response, async (chunk) => {
+      // Check for safety block in streaming response
+      const blockReason = chunk?.promptFeedback?.blockReason;
+      if (blockReason) {
+        console.error("[Gemini Stream] Prompt blocked by safety filter:", blockReason);
+        throw new Error(`Gemini blocked the prompt: ${blockReason}`);
+      }
+      
+      const parts = chunk?.candidates?.[0]?.content?.parts;
+      const text = Array.isArray(parts) ? parts.map((p) => p?.text || "").join("") : "";
+      if (!text) return;
+      hasContent = true;
+      if (text.startsWith(last)) {
+        const delta = text.slice(last.length);
+        if (delta) {
+          full += delta;
+          try {
+            onToken?.(delta);
+          } catch {}
+        }
+      } else {
+        full += text;
         try {
-          onToken?.(delta);
+          onToken?.(text);
         } catch {}
       }
-    } else {
-      full += text;
-      try {
-        onToken?.(text);
-      } catch {}
-    }
-    last = text;
-  });
+      last = text;
+    });
 
-  return full;
+    // Check for empty response (known Gemini bug)
+    if (!full && !hasContent) {
+      console.error(`[Gemini Stream] Attempt ${attempt}/${MAX_RETRIES} - Empty content received`);
+      lastErr = new Error("Gemini streaming reply empty");
+      if (attempt < MAX_RETRIES) {
+        const delay = 1000 * attempt;
+        console.log(`[Gemini Stream] Retrying in ${delay}ms due to empty response bug...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw lastErr;
+    }
+
+    return full;
+  }
+
+  throw lastErr || new Error("Gemini streaming request failed after retries");
 }
 
 async function callLlmStream(options) {
