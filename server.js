@@ -11,6 +11,8 @@ const path = require("path");
 const fs = require("fs").promises;
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { SocksProxyAgent } = require("socks-proxy-agent");
+const { HttpsProxyAgent } = require("https-proxy-agent");
 require("dotenv").config();
 
 const app = express();
@@ -62,6 +64,26 @@ const GEMINI_BASE_URL = (process.env.GEMINI_BASE_URL || "https://generativelangu
   .trim()
   .replace(/\/+$/, "");
 const GEMINI_MODEL = (process.env.GEMINI_MODEL || "gemini-3-pro-preview").trim();
+
+// ---------- Proxy Configuration ----------
+const PROXY_URL = (process.env.PROXY_URL || "").trim();
+
+function getProxyAgent() {
+  if (!PROXY_URL) return undefined;
+  if (PROXY_URL.startsWith("socks5://") || PROXY_URL.startsWith("socks5h://") || PROXY_URL.startsWith("socks4://")) {
+    return new SocksProxyAgent(PROXY_URL);
+  }
+  if (PROXY_URL.startsWith("http://") || PROXY_URL.startsWith("https://")) {
+    return new HttpsProxyAgent(PROXY_URL);
+  }
+  console.warn(`⚠️  WARNING: Invalid PROXY_URL format: ${PROXY_URL}. Proxy disabled.`);
+  return undefined;
+}
+
+const proxyAgent = getProxyAgent();
+if (proxyAgent) {
+  console.log(`✓ Proxy configured: ${PROXY_URL.replace(/\/\/[^:]+:[^@]+@/, "//***:***@")}`);
+}
 
 const SUPPORTED_LLM_PROVIDERS = new Set(["deepseek", "openai", "gemini"]);
 if (!SUPPORTED_LLM_PROVIDERS.has(LLM_PROVIDER)) {
@@ -445,7 +467,18 @@ async function callDeepSeek({
     body: JSON.stringify(body),
   });
 
-  let response = await fetch(DEEPSEEK_BASE_URL, requestInit(payload));
+  console.log("[DeepSeek] Request to:", DEEPSEEK_BASE_URL);
+  console.log("[DeepSeek] Model:", DEEPSEEK_MODEL);
+
+  let response;
+  try {
+    response = await fetch(DEEPSEEK_BASE_URL, requestInit(payload));
+  } catch (fetchErr) {
+    console.error("[DeepSeek] Fetch failed:", fetchErr.message);
+    console.error("[DeepSeek] Fetch error cause:", fetchErr.cause);
+    throw fetchErr;
+  }
+  
   let errorText = "";
 
   if (!response.ok && expectJSON) {
@@ -454,14 +487,23 @@ async function callDeepSeek({
     const message = parsed?.error?.message || errorText;
     // Some DeepSeek deployments reject response_format; retry without it.
     if (/response_format|json_object|response format/i.test(message)) {
-      response = await fetch(DEEPSEEK_BASE_URL, requestInit(basePayload));
+      console.log("[DeepSeek] Retrying without response_format...");
+      try {
+        response = await fetch(DEEPSEEK_BASE_URL, requestInit(basePayload));
+      } catch (retryErr) {
+        console.error("[DeepSeek] Retry fetch failed:", retryErr.message);
+        console.error("[DeepSeek] Retry fetch error cause:", retryErr.cause);
+        throw retryErr;
+      }
       errorText = "";
     }
   }
 
   if (!response.ok) {
     if (!errorText) errorText = await response.text();
-    console.error("DeepSeek API error:", response.status, errorText);
+    console.error("[DeepSeek] API error status:", response.status);
+    console.error("[DeepSeek] API error headers:", Object.fromEntries(response.headers.entries()));
+    console.error("[DeepSeek] API error body:", errorText);
     let errorMessage = "Upstream DeepSeek API error.";
     const parsed = safeParseJSON(errorText);
     if (parsed?.error?.message) {
@@ -501,6 +543,7 @@ async function callOpenAI({
       instructions: system,
       temperature,
       max_output_tokens: maxTokens,
+      stream: true,
     };
 
     if (expectJSON) {
@@ -523,56 +566,103 @@ async function callOpenAI({
     }
   }
 
-  const response = await fetch(OPENAI_BASE_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify(payload),
-  });
+  console.log("[OpenAI] Request to:", OPENAI_BASE_URL);
+  console.log("[OpenAI] Model:", OPENAI_MODEL);
+  console.log("[OpenAI] Responses API mode:", isResponsesApi);
+  console.log("[OpenAI] Streaming enabled:", isResponsesApi);
 
-  if (!response.ok) {
-    const text = await response.text();
-    console.error("OpenAI-compatible API error:", response.status, text);
-    let errorMessage = "Upstream OpenAI-compatible API error.";
-    const parsed = safeParseJSON(text);
-    if (parsed?.error?.message) {
-      errorMessage = parsed.error.message;
-    }
-    throw new Error(`${errorMessage} (status ${response.status})`);
-  }
+  const MAX_RETRIES = 3;
+  let lastErr;
 
-  const data = await response.json();
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
 
-  // Parse response based on API type
-  let reply;
-  if (isResponsesApi) {
-    // Responses API returns output array with message content
-    reply = data.output?.[0]?.content?.[0]?.text || data.output_text;
-    if (!reply && Array.isArray(data.output)) {
-      // Try to find text content in any output item
-      for (const item of data.output) {
-        if (item.type === "message" && Array.isArray(item.content)) {
-          for (const content of item.content) {
-            if (content.type === "output_text" || content.type === "text") {
-              reply = content.text;
-              break;
+      const fetchOptions = {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      };
+      if (proxyAgent) fetchOptions.dispatcher = proxyAgent;
+
+      const response = await fetch(OPENAI_BASE_URL, fetchOptions);
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error("[OpenAI] API error status:", response.status);
+        console.error("[OpenAI] API error body:", text);
+        let errorMessage = "Upstream OpenAI API error.";
+        const parsed = safeParseJSON(text);
+        if (parsed?.error?.message) {
+          errorMessage = parsed.error.message;
+        }
+        throw new Error(`${errorMessage} (status ${response.status})`);
+      }
+
+      // For streaming responses, collect all chunks
+      if (isResponsesApi && payload.stream) {
+        let fullText = "";
+        await readSseEvents(response, async ({ data }) => {
+          const trimmed = String(data || "").trim();
+          if (!trimmed || trimmed === "[DONE]") return trimmed !== "[DONE]";
+          const parsed = safeParseJSON(trimmed);
+          if (parsed?.delta) {
+            fullText += parsed.delta;
+          } else if (parsed?.type === "response.output_text.done" && parsed?.text) {
+            fullText = parsed.text;
+          }
+          return true;
+        });
+        if (!fullText) throw new Error("OpenAI streaming reply empty");
+        return fullText.trim();
+      }
+
+      const data = await response.json();
+
+      // Parse response based on API type
+      let reply;
+      if (isResponsesApi) {
+        reply = data.output?.[0]?.content?.[0]?.text || data.output_text;
+        if (!reply && Array.isArray(data.output)) {
+          for (const item of data.output) {
+            if (item.type === "message" && Array.isArray(item.content)) {
+              for (const content of item.content) {
+                if (content.type === "output_text" || content.type === "text") {
+                  reply = content.text;
+                  break;
+                }
+              }
             }
+            if (reply) break;
           }
         }
-        if (reply) break;
+      } else {
+        reply = data.choices?.[0]?.message?.content;
       }
-    }
-  } else {
-    // Chat Completions API format
-    reply = data.choices?.[0]?.message?.content;
-  }
 
-  if (!reply) {
-    throw new Error("OpenAI reply missing content");
+      if (!reply) throw new Error("OpenAI reply missing content");
+      return reply.trim();
+    } catch (err) {
+      lastErr = err;
+      const isRetryable = err.code === "ECONNRESET" || err.name === "AbortError" || /ETIMEDOUT|ENOTFOUND|socket/.test(err.message);
+      console.error(`[OpenAI] Attempt ${attempt}/${MAX_RETRIES} failed:`, err.message);
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const delay = 1000 * attempt;
+        console.log(`[OpenAI] Retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
   }
-  return reply.trim();
+  throw lastErr;
 }
 
 async function callGemini({
@@ -610,17 +700,32 @@ async function callGemini({
     },
   };
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  console.log("[Gemini] Request to:", endpoint.replace(/key=[^&]+/, "key=***"));
+  console.log("[Gemini] Model:", modelName);
+  console.log("[Gemini] Payload keys:", Object.keys(payload));
+
+  let response;
+  try {
+    const fetchOptions = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    };
+    if (proxyAgent) fetchOptions.dispatcher = proxyAgent;
+    response = await fetch(endpoint, fetchOptions);
+  } catch (fetchErr) {
+    console.error("[Gemini] Fetch failed:", fetchErr.message);
+    console.error("[Gemini] Fetch error cause:", fetchErr.cause);
+    throw fetchErr;
+  }
 
   if (!response.ok) {
     const text = await response.text();
-    console.error("Gemini API error:", response.status, text);
+    console.error("[Gemini] API error status:", response.status);
+    console.error("[Gemini] API error headers:", Object.fromEntries(response.headers.entries()));
+    console.error("[Gemini] API error body:", text);
     let errorMessage = "Upstream Gemini API error.";
     const parsed = safeParseJSON(text);
     if (parsed?.error?.message) {
