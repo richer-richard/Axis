@@ -671,7 +671,7 @@ async function callGemini({
   system,
   user,
   temperature = 0.35,
-  maxTokens = 900,
+  maxTokens = 8192,
   expectJSON = false,
 }) {
   if (!GEMINI_API_KEY) {
@@ -1126,7 +1126,7 @@ async function callGeminiStream({
   system,
   user,
   temperature = 0.35,
-  maxTokens = 900,
+  maxTokens = 8192,
   onToken,
   signal,
 }) {
