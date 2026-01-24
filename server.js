@@ -11,6 +11,10 @@ const path = require("path");
 const fs = require("fs").promises;
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { SocksProxyAgent } = require("socks-proxy-agent");
+const { HttpsProxyAgent } = require("https-proxy-agent");
+const { fetch: undiciFetch, Agent } = require("undici");
+const nodeFetch = require("node-fetch");
 require("dotenv").config();
 
 const app = express();
@@ -55,13 +59,33 @@ const DEEPSEEK_MODEL = (process.env.DEEPSEEK_MODEL || "deepseek-chat").trim();
 const OPENAI_API_KEY = normalizeApiKey(process.env.OPENAI_API_KEY);
 const OPENAI_BASE_URL =
   (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1/chat/completions").trim();
-const OPENAI_MODEL = (process.env.OPENAI_MODEL || "gpt-4o-mini").trim();
+const OPENAI_MODEL = (process.env.OPENAI_MODEL || "gpt-5.2").trim();
 
 const GEMINI_API_KEY = normalizeApiKey(process.env.GEMINI_API_KEY);
 const GEMINI_BASE_URL = (process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com/v1beta")
   .trim()
   .replace(/\/+$/, "");
-const GEMINI_MODEL = (process.env.GEMINI_MODEL || "gemini-1.5-flash").trim();
+const GEMINI_MODEL = (process.env.GEMINI_MODEL || "gemini-3-pro-preview").trim();
+
+// ---------- Proxy Configuration ----------
+const PROXY_URL = (process.env.PROXY_URL || "").trim();
+
+function getProxyAgent() {
+  if (!PROXY_URL) return undefined;
+  if (PROXY_URL.startsWith("socks5://") || PROXY_URL.startsWith("socks5h://") || PROXY_URL.startsWith("socks4://")) {
+    return new SocksProxyAgent(PROXY_URL);
+  }
+  if (PROXY_URL.startsWith("http://") || PROXY_URL.startsWith("https://")) {
+    return new HttpsProxyAgent(PROXY_URL);
+  }
+  console.warn(`⚠️  WARNING: Invalid PROXY_URL format: ${PROXY_URL}. Proxy disabled.`);
+  return undefined;
+}
+
+const proxyAgent = getProxyAgent();
+if (proxyAgent) {
+  console.log(`✓ Proxy configured: ${PROXY_URL.replace(/\/\/[^:]+:[^@]+@/, "//***:***@")}`);
+}
 
 const SUPPORTED_LLM_PROVIDERS = new Set(["deepseek", "openai", "gemini"]);
 if (!SUPPORTED_LLM_PROVIDERS.has(LLM_PROVIDER)) {
@@ -150,6 +174,19 @@ function resolveProviderForUserData(data) {
   return envDefault;
 }
 
+function resolveProviderForRequest(requestedProvider) {
+  const requested = normalizeProvider(requestedProvider);
+  if (requested && isProviderConfigured(requested)) return requested;
+
+  const envDefault = normalizeProvider(LLM_PROVIDER) || "deepseek";
+  if (isProviderConfigured(envDefault)) return envDefault;
+
+  const configured = listConfiguredProviders();
+  if (configured.length) return configured[0];
+
+  return requested || envDefault;
+}
+
 // ---------- LLM helpers ----------
 function safeParseJSON(text) {
   try {
@@ -157,6 +194,109 @@ function safeParseJSON(text) {
   } catch {
     return null;
   }
+}
+
+function extractFirstJsonObject(text) {
+  const input = String(text || "");
+  const start = input.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < input.length; i++) {
+    const ch = input[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (ch === "{") depth += 1;
+    if (ch === "}") depth -= 1;
+    if (depth === 0) {
+      return input.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+function safeParseJSONFromText(text) {
+  if (text === undefined || text === null) return null;
+  const raw = String(text).trim();
+  const direct = safeParseJSON(raw);
+  if (direct) return direct;
+
+  const withoutFences = raw.replace(/```(?:json)?/gi, "").trim();
+  const fenceParsed = safeParseJSON(withoutFences);
+  if (fenceParsed) return fenceParsed;
+
+  const extracted = extractFirstJsonObject(raw) || extractFirstJsonObject(withoutFences);
+  if (extracted) return safeParseJSON(extracted);
+  return null;
+}
+
+async function callLlmWithJsonRepair({
+  provider,
+  system,
+  user,
+  temperature = 0.2,
+  maxTokens = 900,
+  schema,
+  schemaHint,
+}) {
+  const raw = await callLlm({
+    provider,
+    system,
+    user,
+    temperature,
+    maxTokens,
+    expectJSON: true,
+  });
+
+  const parsed = safeParseJSONFromText(raw);
+  const validated = schema.safeParse(parsed);
+  if (validated.success) {
+    return { ok: true, raw, data: validated.data, repaired: false };
+  }
+
+  const repairSystem =
+    "You are a strict JSON formatter. Output ONLY valid JSON. No markdown fences, no commentary, no trailing commas.";
+  const repairUser = [
+    "Fix the following text into strict JSON that matches this schema:",
+    schemaHint ? `Schema: ${schemaHint}` : "",
+    "",
+    "Text to fix:",
+    raw,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const repairedRaw = await callLlm({
+    provider,
+    system: repairSystem,
+    user: repairUser,
+    temperature: 0,
+    maxTokens: Math.max(300, Math.min(maxTokens, 1200)),
+    expectJSON: true,
+  });
+
+  const repairedParsed = safeParseJSONFromText(repairedRaw);
+  const repairedValidated = schema.safeParse(repairedParsed);
+  if (repairedValidated.success) {
+    return { ok: true, raw: repairedRaw, data: repairedValidated.data, repaired: true };
+  }
+
+  return { ok: false, raw, repairedRaw };
 }
 
 // ---------- iCalendar (.ics) helpers ----------
@@ -302,7 +442,7 @@ async function callDeepSeek({
     throw new Error("DEEPSEEK_API_KEY is not configured on the server.");
   }
 
-  const payload = {
+  const basePayload = {
     model: DEEPSEEK_MODEL,
     messages: [
       { role: "system", content: system },
@@ -312,25 +452,62 @@ async function callDeepSeek({
     max_tokens: maxTokens,
   };
 
-  // DeepSeek supports OpenAI-style response_format on newer models
-  if (expectJSON) {
-    payload.response_format = { type: "json_object" };
-  }
+  const payload = expectJSON
+    ? {
+        ...basePayload,
+        // DeepSeek supports OpenAI-style response_format on newer models.
+        response_format: { type: "json_object" },
+      }
+    : basePayload;
 
-  const response = await fetch(DEEPSEEK_BASE_URL, {
+  const requestInit = (body) => ({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
 
+  console.log("[DeepSeek] Request to:", DEEPSEEK_BASE_URL);
+  console.log("[DeepSeek] Model:", DEEPSEEK_MODEL);
+
+  let response;
+  try {
+    response = await fetch(DEEPSEEK_BASE_URL, requestInit(payload));
+  } catch (fetchErr) {
+    console.error("[DeepSeek] Fetch failed:", fetchErr.message);
+    console.error("[DeepSeek] Fetch error cause:", fetchErr.cause);
+    throw fetchErr;
+  }
+  
+  let errorText = "";
+
+  if (!response.ok && expectJSON) {
+    errorText = await response.text();
+    const parsed = safeParseJSON(errorText);
+    const message = parsed?.error?.message || errorText;
+    // Some DeepSeek deployments reject response_format; retry without it.
+    if (/response_format|json_object|response format/i.test(message)) {
+      console.log("[DeepSeek] Retrying without response_format...");
+      try {
+        response = await fetch(DEEPSEEK_BASE_URL, requestInit(basePayload));
+      } catch (retryErr) {
+        console.error("[DeepSeek] Retry fetch failed:", retryErr.message);
+        console.error("[DeepSeek] Retry fetch error cause:", retryErr.cause);
+        throw retryErr;
+      }
+      errorText = "";
+    }
+  }
+
   if (!response.ok) {
-    const text = await response.text();
-    console.error("DeepSeek API error:", response.status, text);
+    if (!errorText) errorText = await response.text();
+    console.error("[DeepSeek] API error status:", response.status);
+    console.error("[DeepSeek] API error headers:", Object.fromEntries(response.headers.entries()));
+    console.error("[DeepSeek] API error body:", errorText);
     let errorMessage = "Upstream DeepSeek API error.";
-    const parsed = safeParseJSON(text);
+    const parsed = safeParseJSON(errorText);
     if (parsed?.error?.message) {
       errorMessage = parsed.error.message;
     }
@@ -356,53 +533,145 @@ async function callOpenAI({
     throw new Error("OPENAI_API_KEY is not configured on the server.");
   }
 
-  const payload = {
-    model: OPENAI_MODEL,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-    temperature,
-    max_tokens: maxTokens,
-  };
+  // Detect if using the Responses API (URL ends with /responses)
+  const isResponsesApi = OPENAI_BASE_URL.includes("/responses");
 
-  if (expectJSON) {
-    payload.response_format = { type: "json_object" };
-  }
+  let payload;
+  if (isResponsesApi) {
+    // OpenAI Responses API format
+    payload = {
+      model: OPENAI_MODEL,
+      input: user,
+      instructions: system,
+      temperature,
+      max_output_tokens: maxTokens,
+      stream: true,
+    };
 
-  const response = await fetch(OPENAI_BASE_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    console.error("OpenAI-compatible API error:", response.status, text);
-    let errorMessage = "Upstream OpenAI-compatible API error.";
-    const parsed = safeParseJSON(text);
-    if (parsed?.error?.message) {
-      errorMessage = parsed.error.message;
+    if (expectJSON) {
+      payload.text = { format: { type: "json_object" } };
     }
-    throw new Error(`${errorMessage} (status ${response.status})`);
+  } else {
+    // Standard Chat Completions API format
+    payload = {
+      model: OPENAI_MODEL,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature,
+      max_tokens: maxTokens,
+    };
+
+    if (expectJSON) {
+      payload.response_format = { type: "json_object" };
+    }
   }
 
-  const data = await response.json();
-  const reply = data.choices?.[0]?.message?.content;
-  if (!reply) {
-    throw new Error("OpenAI reply missing content");
+  console.log("[OpenAI] Request to:", OPENAI_BASE_URL);
+  console.log("[OpenAI] Model:", OPENAI_MODEL);
+  console.log("[OpenAI] Responses API mode:", isResponsesApi);
+  console.log("[OpenAI] Streaming enabled:", isResponsesApi);
+
+  const MAX_RETRIES = 3;
+  let lastErr;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
+
+      const fetchOptions = {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      };
+      if (proxyAgent) fetchOptions.dispatcher = proxyAgent;
+
+      const response = await fetch(OPENAI_BASE_URL, fetchOptions);
+
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        const text = await response.text();
+        console.error("[OpenAI] API error status:", response.status);
+        console.error("[OpenAI] API error body:", text);
+        let errorMessage = "Upstream OpenAI API error.";
+        const parsed = safeParseJSON(text);
+        if (parsed?.error?.message) {
+          errorMessage = parsed.error.message;
+        }
+        throw new Error(`${errorMessage} (status ${response.status})`);
+      }
+
+      // For streaming responses, collect all chunks
+      if (isResponsesApi && payload.stream) {
+        let fullText = "";
+        await readSseEvents(response, async ({ data }) => {
+          const trimmed = String(data || "").trim();
+          if (!trimmed || trimmed === "[DONE]") return trimmed !== "[DONE]";
+          const parsed = safeParseJSON(trimmed);
+          if (parsed?.delta) {
+            fullText += parsed.delta;
+          } else if (parsed?.type === "response.output_text.done" && parsed?.text) {
+            fullText = parsed.text;
+          }
+          return true;
+        });
+        if (!fullText) throw new Error("OpenAI streaming reply empty");
+        return fullText.trim();
+      }
+
+      const data = await response.json();
+
+      // Parse response based on API type
+      let reply;
+      if (isResponsesApi) {
+        reply = data.output?.[0]?.content?.[0]?.text || data.output_text;
+        if (!reply && Array.isArray(data.output)) {
+          for (const item of data.output) {
+            if (item.type === "message" && Array.isArray(item.content)) {
+              for (const content of item.content) {
+                if (content.type === "output_text" || content.type === "text") {
+                  reply = content.text;
+                  break;
+                }
+              }
+            }
+            if (reply) break;
+          }
+        }
+      } else {
+        reply = data.choices?.[0]?.message?.content;
+      }
+
+      if (!reply) throw new Error("OpenAI reply missing content");
+      return reply.trim();
+    } catch (err) {
+      lastErr = err;
+      const isRetryable = err.code === "ECONNRESET" || err.name === "AbortError" || /ETIMEDOUT|ENOTFOUND|socket/.test(err.message);
+      console.error(`[OpenAI] Attempt ${attempt}/${MAX_RETRIES} failed:`, err.message);
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const delay = 1000 * attempt;
+        console.log(`[OpenAI] Retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
   }
-  return reply.trim();
+  throw lastErr;
 }
 
 async function callGemini({
   system,
   user,
   temperature = 0.35,
-  maxTokens = 900,
+  maxTokens = 8192,
   expectJSON = false,
 }) {
   if (!GEMINI_API_KEY) {
@@ -416,7 +685,6 @@ async function callGemini({
     ...(system
       ? {
           systemInstruction: {
-            role: "system",
             parts: [{ text: system }],
           },
         }
@@ -434,18 +702,287 @@ async function callGemini({
     },
   };
 
-  const response = await fetch(endpoint, {
+  console.log("[Gemini] Request to:", endpoint.replace(/key=[^&]+/, "key=***"));
+  console.log("[Gemini] Model:", modelName);
+  console.log("[Gemini] Payload keys:", Object.keys(payload));
+  console.log("[Gemini] Using proxy:", proxyAgent ? "yes" : "no");
+
+  const MAX_RETRIES = 3;
+  let lastErr;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    let response;
+    try {
+      const fetchOptions = {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      };
+      // Use node-fetch with agent option for proxy support (native fetch doesn't support agent)
+      if (proxyAgent) {
+        fetchOptions.agent = proxyAgent;
+        response = await nodeFetch(endpoint, fetchOptions);
+      } else {
+        response = await fetch(endpoint, fetchOptions);
+      }
+    } catch (fetchErr) {
+      lastErr = fetchErr;
+      console.error(`[Gemini] Attempt ${attempt}/${MAX_RETRIES} fetch failed:`, fetchErr.message);
+      console.error("[Gemini] Fetch error cause:", fetchErr.cause);
+      const isRetryable = fetchErr.code === "ECONNRESET" || /ETIMEDOUT|ENOTFOUND|socket/i.test(fetchErr.message);
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const delay = 1000 * attempt;
+        console.log(`[Gemini] Retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw fetchErr;
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error("[Gemini] API error status:", response.status);
+      console.error("[Gemini] API error headers:", Object.fromEntries(response.headers.entries()));
+      console.error("[Gemini] API error body:", text);
+      let errorMessage = "Upstream Gemini API error.";
+      const parsed = safeParseJSON(text);
+      if (parsed?.error?.message) {
+        errorMessage = parsed.error.message;
+      }
+      lastErr = new Error(`${errorMessage} (status ${response.status})`);
+      // Retry on 500/502/503/504 errors
+      const isRetryable = response.status >= 500 && response.status < 600;
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const delay = 1000 * attempt;
+        console.log(`[Gemini] Retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw lastErr;
+    }
+
+    const data = await response.json();
+    
+    // Check for safety block
+    const blockReason = data.promptFeedback?.blockReason;
+    if (blockReason) {
+      console.error("[Gemini] Prompt blocked by safety filter:", blockReason);
+      throw new Error(`Gemini blocked the prompt: ${blockReason}`);
+    }
+
+    const candidate = data.candidates?.[0];
+    const finishReason = candidate?.finishReason;
+    const parts = candidate?.content?.parts;
+    const reply = Array.isArray(parts) ? parts.map((p) => p?.text || "").join("") : "";
+    
+    if (!reply) {
+      // Log detailed info for debugging the known Gemini empty response bug
+      console.error(`[Gemini] Attempt ${attempt}/${MAX_RETRIES} - Empty content received`);
+      console.error("[Gemini] finishReason:", finishReason);
+      console.error("[Gemini] candidates:", JSON.stringify(data.candidates, null, 2));
+      console.error("[Gemini] promptFeedback:", JSON.stringify(data.promptFeedback, null, 2));
+      
+      lastErr = new Error("Gemini reply missing content");
+      // Known Gemini bug: empty response with STOP finish reason - retry
+      if (attempt < MAX_RETRIES) {
+        const delay = 1000 * attempt;
+        console.log(`[Gemini] Retrying in ${delay}ms due to empty response bug...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw lastErr;
+    }
+    
+    return reply.trim();
+  }
+  
+  throw lastErr || new Error("Gemini request failed after retries");
+}
+
+async function callLlm(options) {
+  const provider = resolveProviderForRequest(options?.provider || LLM_PROVIDER || "deepseek");
+
+  if (provider === "openai") return callOpenAI(options);
+  if (provider === "gemini") return callGemini(options);
+  return callDeepSeek(options);
+}
+
+function setSseHeaders(res) {
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+}
+
+function sseSend(res, event, payload) {
+  if (event) res.write(`event: ${event}\n`);
+  const data = payload === undefined ? {} : payload;
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+async function readSseEvents(response, onEvent) {
+  if (!response.body) {
+    throw new Error("Upstream response has no body to stream.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  let eventName = "";
+  let dataLines = [];
+  let stop = false;
+
+  const dispatch = async () => {
+    if (!dataLines.length) {
+      eventName = "";
+      return;
+    }
+    const data = dataLines.join("\n");
+    dataLines = [];
+    const keepGoing = await onEvent({ event: eventName || "message", data });
+    eventName = "";
+    if (keepGoing === false) stop = true;
+  };
+
+  while (!stop) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let idx;
+    while (!stop && (idx = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, idx).replace(/\r$/, "");
+      buffer = buffer.slice(idx + 1);
+
+      if (line.startsWith("event:")) {
+        eventName = line.slice("event:".length).trim();
+        continue;
+      }
+      if (line.startsWith("data:")) {
+        dataLines.push(line.slice("data:".length).trim());
+        continue;
+      }
+      if (line.startsWith(":")) {
+        continue;
+      }
+      if (line === "") {
+        await dispatch();
+      }
+    }
+  }
+
+  if (!stop && buffer.length) {
+    const leftover = buffer.replace(/\r$/, "").trim();
+    if (leftover.startsWith("data:")) {
+      dataLines.push(leftover.slice("data:".length).trim());
+    } else if (leftover && leftover !== "[DONE]") {
+      dataLines.push(leftover);
+    }
+  }
+
+  if (!stop) {
+    await dispatch();
+  }
+
+  try {
+    await reader.cancel();
+  } catch {}
+}
+
+async function readJsonLines(response, onJson) {
+  if (!response.body) {
+    throw new Error("Upstream response has no body to stream.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let stop = false;
+
+  while (!stop) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let idx;
+    while ((idx = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, idx).replace(/\r$/, "").trim();
+      buffer = buffer.slice(idx + 1);
+      if (!line) continue;
+      const normalized = line.startsWith("data:") ? line.slice("data:".length).trim() : line;
+      if (!normalized) continue;
+      if (normalized === "[DONE]") {
+        stop = true;
+        break;
+      }
+      const parsed = safeParseJSONFromText(normalized);
+      if (parsed) {
+        const keepGoing = await onJson(parsed);
+        if (keepGoing === false) {
+          stop = true;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!stop) {
+    const rest = buffer.replace(/\r$/, "").trim();
+    if (rest) {
+      const normalized = rest.startsWith("data:") ? rest.slice("data:".length).trim() : rest;
+      const parsed = safeParseJSONFromText(normalized);
+      if (parsed) await onJson(parsed);
+    }
+  }
+
+  try {
+    await reader.cancel();
+  } catch {}
+}
+
+async function callDeepSeekStream({
+  system,
+  user,
+  temperature = 0.35,
+  maxTokens = 900,
+  onToken,
+  signal,
+}) {
+  if (!DEEPSEEK_API_KEY) {
+    throw new Error("DEEPSEEK_API_KEY is not configured on the server.");
+  }
+
+  const payload = {
+    model: DEEPSEEK_MODEL,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    temperature,
+    max_tokens: maxTokens,
+    stream: true,
+  };
+
+  const response = await fetch(DEEPSEEK_BASE_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
     },
     body: JSON.stringify(payload),
+    signal,
   });
 
   if (!response.ok) {
     const text = await response.text();
-    console.error("Gemini API error:", response.status, text);
-    let errorMessage = "Upstream Gemini API error.";
+    console.error("DeepSeek API error:", response.status, text);
+    let errorMessage = "Upstream DeepSeek API error.";
     const parsed = safeParseJSON(text);
     if (parsed?.error?.message) {
       errorMessage = parsed.error.message;
@@ -453,24 +990,293 @@ async function callGemini({
     throw new Error(`${errorMessage} (status ${response.status})`);
   }
 
-  const data = await response.json();
-  const parts = data.candidates?.[0]?.content?.parts;
-  const reply = Array.isArray(parts) ? parts.map((p) => p?.text || "").join("") : "";
-  if (!reply) {
-    throw new Error("Gemini reply missing content");
-  }
-  return reply.trim();
+  let full = "";
+  await readSseEvents(response, async ({ data }) => {
+    const trimmed = String(data || "").trim();
+    if (!trimmed) return;
+    if (trimmed === "[DONE]") return false;
+    const parsed = safeParseJSON(trimmed);
+    const delta = parsed?.choices?.[0]?.delta?.content;
+    if (typeof delta === "string" && delta.length) {
+      full += delta;
+      try {
+        onToken?.(delta);
+      } catch {}
+    }
+  });
+
+  return full;
 }
 
-async function callLlm(options) {
-  const requested = String(options?.provider || LLM_PROVIDER || "deepseek")
-    .trim()
-    .toLowerCase();
-  const provider = SUPPORTED_LLM_PROVIDERS.has(requested) ? requested : "deepseek";
+async function callOpenAIStream({
+  system,
+  user,
+  temperature = 0.35,
+  maxTokens = 900,
+  onToken,
+  signal,
+}) {
+  if (!OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is not configured on the server.");
+  }
 
-  if (provider === "openai") return callOpenAI(options);
-  if (provider === "gemini") return callGemini(options);
-  return callDeepSeek(options);
+  const isResponsesApi = OPENAI_BASE_URL.includes("/responses");
+
+  let payload;
+  if (isResponsesApi) {
+    payload = {
+      model: OPENAI_MODEL,
+      input: user,
+      instructions: system,
+      temperature,
+      max_output_tokens: maxTokens,
+      stream: true,
+    };
+  } else {
+    payload = {
+      model: OPENAI_MODEL,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature,
+      max_tokens: maxTokens,
+      stream: true,
+    };
+  }
+
+  const response = await fetch(OPENAI_BASE_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    console.error("OpenAI-compatible API error:", response.status, text);
+    let errorMessage = "Upstream OpenAI-compatible API error.";
+    const parsed = safeParseJSON(text);
+    if (parsed?.error?.message) {
+      errorMessage = parsed.error.message;
+    }
+    throw new Error(`${errorMessage} (status ${response.status})`);
+  }
+
+  let full = "";
+  let lastResponsesText = "";
+
+  await readSseEvents(response, async ({ data }) => {
+    const trimmed = String(data || "").trim();
+    if (!trimmed) return;
+    if (trimmed === "[DONE]") return false;
+    const parsed = safeParseJSON(trimmed);
+    if (!parsed) return;
+
+    if (isResponsesApi) {
+      if (typeof parsed.delta === "string" && parsed.delta.length) {
+        full += parsed.delta;
+        lastResponsesText += parsed.delta;
+        try {
+          onToken?.(parsed.delta);
+        } catch {}
+        return;
+      }
+
+      const maybeText =
+        parsed.output?.[0]?.content?.[0]?.text ||
+        parsed.output_text ||
+        (Array.isArray(parsed.output)
+          ? parsed.output
+              .flatMap((item) => (Array.isArray(item?.content) ? item.content : []))
+              .map((c) => c?.text || "")
+              .join("")
+          : "");
+
+      if (typeof maybeText === "string" && maybeText && maybeText.startsWith(lastResponsesText)) {
+        const delta = maybeText.slice(lastResponsesText.length);
+        if (delta) {
+          full += delta;
+          lastResponsesText = maybeText;
+          try {
+            onToken?.(delta);
+          } catch {}
+        }
+      }
+      return;
+    }
+
+    const delta = parsed?.choices?.[0]?.delta?.content;
+    if (typeof delta === "string" && delta.length) {
+      full += delta;
+      try {
+        onToken?.(delta);
+      } catch {}
+    }
+  });
+
+  return full;
+}
+
+async function callGeminiStream({
+  system,
+  user,
+  temperature = 0.35,
+  maxTokens = 8192,
+  onToken,
+  signal,
+}) {
+  if (!GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not configured on the server.");
+  }
+
+  const modelName = GEMINI_MODEL.replace(/^models\//, "");
+  const endpoint = `${GEMINI_BASE_URL}/models/${encodeURIComponent(modelName)}:streamGenerateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
+
+  const payload = {
+    ...(system
+      ? {
+          systemInstruction: {
+            parts: [{ text: system }],
+          },
+        }
+      : {}),
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: user }],
+      },
+    ],
+    generationConfig: {
+      temperature,
+      maxOutputTokens: maxTokens,
+    },
+  };
+
+  console.log("[Gemini Stream] Request to:", endpoint.replace(/key=[^&]+/, "key=***"));
+  console.log("[Gemini Stream] Model:", modelName);
+  console.log("[Gemini Stream] Using proxy:", proxyAgent ? "yes" : "no");
+
+  const MAX_RETRIES = 3;
+  let lastErr;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    let response;
+    try {
+      const fetchOptions = {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream, application/json",
+        },
+        body: JSON.stringify(payload),
+        signal,
+      };
+
+      // Use node-fetch with agent option for proxy support
+      if (proxyAgent) {
+        fetchOptions.agent = proxyAgent;
+        response = await nodeFetch(endpoint, fetchOptions);
+      } else {
+        response = await fetch(endpoint, fetchOptions);
+      }
+    } catch (fetchErr) {
+      lastErr = fetchErr;
+      // Don't retry if user aborted
+      if (fetchErr.name === "AbortError") throw fetchErr;
+      console.error(`[Gemini Stream] Attempt ${attempt}/${MAX_RETRIES} fetch failed:`, fetchErr.message);
+      const isRetryable = fetchErr.code === "ECONNRESET" || /ETIMEDOUT|ENOTFOUND|socket/i.test(fetchErr.message);
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const delay = 1000 * attempt;
+        console.log(`[Gemini Stream] Retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw fetchErr;
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.error("[Gemini Stream] API error status:", response.status);
+      console.error("[Gemini Stream] API error body:", text);
+      let errorMessage = "Upstream Gemini API error.";
+      const parsed = safeParseJSON(text);
+      if (parsed?.error?.message) {
+        errorMessage = parsed.error.message;
+      }
+      lastErr = new Error(`${errorMessage} (status ${response.status})`);
+      // Retry on 500/502/503/504 errors
+      const isRetryable = response.status >= 500 && response.status < 600;
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const delay = 1000 * attempt;
+        console.log(`[Gemini Stream] Retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw lastErr;
+    }
+
+    let full = "";
+    let last = "";
+    let hasContent = false;
+    
+    await readJsonLines(response, async (chunk) => {
+      // Check for safety block in streaming response
+      const blockReason = chunk?.promptFeedback?.blockReason;
+      if (blockReason) {
+        console.error("[Gemini Stream] Prompt blocked by safety filter:", blockReason);
+        throw new Error(`Gemini blocked the prompt: ${blockReason}`);
+      }
+      
+      const parts = chunk?.candidates?.[0]?.content?.parts;
+      const text = Array.isArray(parts) ? parts.map((p) => p?.text || "").join("") : "";
+      if (!text) return;
+      hasContent = true;
+      if (text.startsWith(last)) {
+        const delta = text.slice(last.length);
+        if (delta) {
+          full += delta;
+          try {
+            onToken?.(delta);
+          } catch {}
+        }
+      } else {
+        full += text;
+        try {
+          onToken?.(text);
+        } catch {}
+      }
+      last = text;
+    });
+
+    // Check for empty response (known Gemini bug)
+    if (!full && !hasContent) {
+      console.error(`[Gemini Stream] Attempt ${attempt}/${MAX_RETRIES} - Empty content received`);
+      lastErr = new Error("Gemini streaming reply empty");
+      if (attempt < MAX_RETRIES) {
+        const delay = 1000 * attempt;
+        console.log(`[Gemini Stream] Retrying in ${delay}ms due to empty response bug...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw lastErr;
+    }
+
+    return full;
+  }
+
+  throw lastErr || new Error("Gemini streaming request failed after retries");
+}
+
+async function callLlmStream(options) {
+  const provider = resolveProviderForRequest(options?.provider || LLM_PROVIDER || "deepseek");
+  if (provider === "openai") return callOpenAIStream(options);
+  if (provider === "gemini") return callGeminiStream(options);
+  return callDeepSeekStream(options);
 }
 
 // --- Security / hardening middleware ---
@@ -710,6 +1516,7 @@ function ensureAxisUserDataShape(data) {
       blockingRules: [],
       dailyHabits: [],
       focusSessions: [],
+      assistantHistory: [],
       weeklyInsights: null,
       achievements: {},
       taskTemplates: [],
@@ -734,6 +1541,7 @@ function ensureAxisUserDataShape(data) {
     blockingRules: Array.isArray(data.blockingRules) ? data.blockingRules : [],
     dailyHabits: Array.isArray(data.dailyHabits) ? data.dailyHabits : [],
     focusSessions: Array.isArray(data.focusSessions) ? data.focusSessions : [],
+    assistantHistory: Array.isArray(data.assistantHistory) ? data.assistantHistory : [],
     weeklyInsights: data.weeklyInsights ?? null,
     achievements: data.achievements && typeof data.achievements === "object" ? data.achievements : {},
     taskTemplates: Array.isArray(data.taskTemplates) ? data.taskTemplates : [],
@@ -792,6 +1600,233 @@ function createAxisTask(input) {
   };
 }
 
+function localDateKey(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return "";
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+const GOAL_COLOR_PALETTE = [
+  { bg: "rgba(139, 92, 246, 0.15)", border: "rgba(139, 92, 246, 0.3)", text: "#7c3aed" },
+  { bg: "rgba(14, 165, 233, 0.15)", border: "rgba(14, 165, 233, 0.3)", text: "#0284c7" },
+  { bg: "rgba(236, 72, 153, 0.15)", border: "rgba(236, 72, 153, 0.3)", text: "#db2777" },
+  { bg: "rgba(34, 197, 94, 0.15)", border: "rgba(34, 197, 94, 0.3)", text: "#16a34a" },
+  { bg: "rgba(251, 146, 60, 0.15)", border: "rgba(251, 146, 60, 0.3)", text: "#ea580c" },
+  { bg: "rgba(168, 85, 247, 0.15)", border: "rgba(168, 85, 247, 0.3)", text: "#7c3aed" },
+];
+
+function normalizeGoalLevel(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "lifetime";
+  const normalized = raw.replace(/[^a-z]+/g, "-");
+  const mapping = {
+    lifetime: "lifetime",
+    life: "lifetime",
+    "long-term": "lifetime",
+    longterm: "lifetime",
+    yearly: "yearly",
+    annual: "yearly",
+    year: "yearly",
+    seasonal: "seasonal",
+    quarterly: "seasonal",
+    quarter: "seasonal",
+    monthly: "monthly",
+    month: "monthly",
+    weekly: "weekly",
+    week: "weekly",
+    daily: "daily",
+    day: "daily",
+  };
+  return mapping[normalized] || "lifetime";
+}
+
+function clampGoalProgress(value) {
+  if (value === undefined || value === null) return 0;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function normalizeGoalMilestones(value) {
+  const fallback = [25, 50, 75];
+  if (!value) return fallback;
+  const arr = Array.isArray(value)
+    ? value
+    : String(value)
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean);
+  const cleaned = arr
+    .map((v) => Number(v))
+    .filter((n) => Number.isFinite(n))
+    .map((n) => Math.max(0, Math.min(100, Math.round(n))));
+  const unique = Array.from(new Set(cleaned)).sort((a, b) => a - b);
+  return unique.length ? unique : fallback;
+}
+
+function goalSlug(goal) {
+  const name = typeof goal === "string" ? goal : goal?.name;
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-");
+}
+
+function defaultGoalDates(level) {
+  if (level === "lifetime") {
+    return { startDate: "", endDate: "" };
+  }
+
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+
+  if (level === "yearly") {
+    start.setMonth(0, 1);
+    end.setMonth(11, 31);
+  } else if (level === "seasonal") {
+    const quarterStart = Math.floor(start.getMonth() / 3) * 3;
+    start.setMonth(quarterStart, 1);
+    end.setMonth(quarterStart + 3, 0);
+  } else if (level === "monthly") {
+    start.setDate(1);
+    end.setMonth(end.getMonth() + 1, 0);
+  } else if (level === "weekly") {
+    const dow = (start.getDay() + 6) % 7;
+    start.setDate(start.getDate() - dow);
+    end.setDate(start.getDate() + 6);
+  } else if (level === "daily") {
+    // keep today
+  }
+
+  return { startDate: localDateKey(start), endDate: localDateKey(end) };
+}
+
+function createAxisGoal(input, index = 0) {
+  const name = String(input?.name || "").trim();
+  const level = normalizeGoalLevel(input?.level);
+  const id = `goal_${Date.now()}_${crypto.randomBytes(6).toString("hex")}`;
+  const color = GOAL_COLOR_PALETTE[index % GOAL_COLOR_PALETTE.length];
+
+  let startDate = String(input?.startDate || "").trim();
+  let endDate = String(input?.endDate || "").trim();
+  if (!startDate && !endDate) {
+    const defaults = defaultGoalDates(level);
+    startDate = defaults.startDate;
+    endDate = defaults.endDate;
+  }
+
+  return {
+    id,
+    name,
+    level,
+    parentId: input?.parentId ? String(input.parentId).trim() : null,
+    color,
+    createdAt: new Date().toISOString(),
+    manualProgress: clampGoalProgress(input?.manualProgress),
+    milestones: normalizeGoalMilestones(input?.milestones),
+    startDate,
+    endDate,
+    completed: false,
+    completedAt: "",
+  };
+}
+
+function ensureDailyGoalTask(data, goal) {
+  if (!goal || goal.level !== "daily") return { created: false, updated: false };
+  if (!Array.isArray(data.tasks)) data.tasks = [];
+  const slug = goalSlug(goal);
+  const existing = data.tasks.find((t) => t?.fromDailyGoal && t?.goalId === goal.id);
+  if (!existing) {
+    data.tasks.push({
+      id: `task_goal_${goal.id}`,
+      task_name: goal.name,
+      task_priority: "Important, Not Urgent",
+      task_category: slug || "study",
+      task_deadline: localDateKey(new Date()),
+      task_deadline_time: "23:59",
+      task_duration_hours: 1,
+      computer_required: false,
+      completed: false,
+      fromDailyGoal: true,
+      goalId: goal.id,
+      createdAt: new Date().toISOString(),
+    });
+    return { created: true, updated: false };
+  }
+
+  let updated = false;
+  if (goal.name && existing.task_name !== goal.name) {
+    existing.task_name = goal.name;
+    updated = true;
+  }
+  if (slug && existing.task_category !== slug) {
+    existing.task_category = slug;
+    updated = true;
+  }
+
+  return { created: false, updated };
+}
+
+function removeDailyGoalTasks(data, goalId) {
+  if (!Array.isArray(data.tasks)) return false;
+  const removedIds = new Set();
+  data.tasks = data.tasks.filter((t) => {
+    if (t?.fromDailyGoal && t?.goalId === goalId) {
+      if (t?.id) removedIds.add(String(t.id));
+      return false;
+    }
+    return true;
+  });
+  if (removedIds.size && Array.isArray(data.schedule)) {
+    data.schedule = data.schedule.filter((b) => !removedIds.has(String(b?.taskId || "")));
+  }
+  return removedIds.size > 0;
+}
+
+const ASSISTANT_HISTORY_LIMIT = 20;
+const ASSISTANT_HISTORY_CONTEXT = 12;
+
+function ensureAssistantHistory(data) {
+  if (!Array.isArray(data.assistantHistory)) {
+    data.assistantHistory = [];
+  }
+  return data.assistantHistory;
+}
+
+function appendAssistantHistory(data, entries) {
+  const history = ensureAssistantHistory(data);
+  const list = Array.isArray(entries) ? entries : [entries];
+  let changed = false;
+  list.forEach((entry) => {
+    if (!entry || typeof entry !== "object") return;
+    const role = entry.role === "assistant" ? "assistant" : "user";
+    const content = String(entry.content || "").trim();
+    if (!content) return;
+    history.push({
+      role,
+      content: content.slice(0, 1200),
+      ts: new Date().toISOString(),
+    });
+    changed = true;
+  });
+  if (history.length > ASSISTANT_HISTORY_LIMIT) {
+    history.splice(0, history.length - ASSISTANT_HISTORY_LIMIT);
+  }
+  return changed;
+}
+
+function formatAssistantHistory(data, limit = ASSISTANT_HISTORY_CONTEXT) {
+  const history = Array.isArray(data.assistantHistory) ? data.assistantHistory : [];
+  if (!history.length) return "";
+  return history
+    .slice(-limit)
+    .map((entry) => `${entry.role === "assistant" ? "Assistant" : "User"}: ${entry.content}`)
+    .join("\n");
+}
+
 function buildAssistantSnapshot(data) {
   const safeData = ensureAxisUserDataShape(data);
   const tasks = safeData.tasks.slice(0, 120).map((t) => ({
@@ -803,6 +1838,17 @@ function buildAssistantSnapshot(data) {
     deadlineTime: String(t?.task_deadline_time || t?.deadlineTime || ""),
     durationHours: Number(t?.task_duration_hours ?? t?.durationHours ?? t?.estimatedHours ?? 0) || 0,
     completed: Boolean(t?.completed),
+  }));
+
+  const goals = safeData.goals.slice(0, 120).map((g) => ({
+    id: String(g?.id || ""),
+    name: String(g?.name || "").slice(0, 180),
+    level: String(g?.level || ""),
+    parentId: String(g?.parentId || ""),
+    startDate: String(g?.startDate || ""),
+    endDate: String(g?.endDate || ""),
+    manualProgress: Number(g?.manualProgress ?? g?.progress ?? 0) || 0,
+    completed: Boolean(g?.completed),
   }));
 
   const schedule = safeData.schedule.slice(0, 200).map((b) => ({
@@ -843,6 +1889,7 @@ function buildAssistantSnapshot(data) {
   return {
     profile: profileBrief,
     tasks,
+    goals,
     schedule,
     fixedBlocks,
     dailyHabits,
@@ -1136,7 +2183,12 @@ app.get("/api/user/data", authenticateToken, async (req, res) => {
 
 app.post("/api/user/data", authenticateToken, async (req, res) => {
   try {
-    await saveUserData(req.user.userId, req.body);
+    const existing = await getUserData(req.user.userId);
+    const incoming = req.body && typeof req.body === "object" ? req.body : {};
+    if (incoming.assistantHistory === undefined && Array.isArray(existing?.assistantHistory)) {
+      incoming.assistantHistory = existing.assistantHistory;
+    }
+    await saveUserData(req.user.userId, incoming);
     res.json({ success: true });
   } catch (err) {
     console.error("Save user data error:", err);
@@ -1396,6 +2448,32 @@ const assistantDeleteHabitSchema = z.object({
   id: z.string().min(1).max(200),
 });
 
+const goalCreateSchema = z.object({
+  name: z.string().min(1).max(200),
+  level: z.string().optional(),
+  parentId: z.string().optional().nullable(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  manualProgress: z.number().min(0).max(100).optional(),
+  milestones: z.array(z.number()).optional(),
+});
+
+const goalUpdateSchema = z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().min(1).max(200).optional(),
+  level: z.string().optional(),
+  parentId: z.string().optional().nullable(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  manualProgress: z.number().min(0).max(100).optional(),
+  milestones: z.array(z.number()).optional(),
+  completed: z.boolean().optional(),
+});
+
+const assistantDeleteGoalSchema = z.object({
+  id: z.string().min(1).max(200),
+});
+
 const assistantRebalanceSchema = z.object({
   horizonDays: z.number().int().min(1).max(21).optional().default(7),
   maxHoursPerDay: z.number().min(1).max(16).optional().default(10),
@@ -1404,7 +2482,7 @@ const assistantRebalanceSchema = z.object({
 const ASSISTANT_TOOLS = [
   {
     name: "get_snapshot",
-    description: "Get a compact snapshot of the user's profile, tasks, schedule, fixed blocks, and daily habits.",
+    description: "Get a compact snapshot of the user's profile, tasks, goals, schedule, fixed blocks, and daily habits.",
     inputSchema: { type: "object", properties: {} },
   },
   {
@@ -1455,6 +2533,51 @@ const ASSISTANT_TOOLS = [
   {
     name: "delete_task",
     description: "Delete an existing task by id (only if the user explicitly asked to delete).",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: { id: { type: "string" } },
+    },
+  },
+  {
+    name: "create_goal",
+    description: "Create a new goal (name + timeframe level, optional parentId and dates).",
+    inputSchema: {
+      type: "object",
+      required: ["name"],
+      properties: {
+        name: { type: "string" },
+        level: { type: "string" },
+        parentId: { type: "string" },
+        startDate: { type: "string" },
+        endDate: { type: "string" },
+        manualProgress: { type: "number" },
+        milestones: { type: "array", items: { type: "number" } },
+      },
+    },
+  },
+  {
+    name: "update_goal",
+    description: "Update an existing goal by id (rename, change level, dates, progress, or parent).",
+    inputSchema: {
+      type: "object",
+      required: ["id"],
+      properties: {
+        id: { type: "string" },
+        name: { type: "string" },
+        level: { type: "string" },
+        parentId: { type: "string" },
+        startDate: { type: "string" },
+        endDate: { type: "string" },
+        manualProgress: { type: "number" },
+        milestones: { type: "array", items: { type: "number" } },
+        completed: { type: "boolean" },
+      },
+    },
+  },
+  {
+    name: "delete_goal",
+    description: "Delete a goal by id (only if the user explicitly asked to delete).",
     inputSchema: {
       type: "object",
       required: ["id"],
@@ -1599,7 +2722,7 @@ Profile: ${JSON.stringify(profileBrief).slice(0, 2000)}
     provider,
   });
 
-  const parsed = safeParseJSON(reply) || {};
+  const parsed = safeParseJSONFromText(reply) || {};
   const blocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
   if (!blocks.length) {
     throw new Error("AI returned no schedule blocks.");
@@ -1712,6 +2835,90 @@ async function executeAssistantTool({ name, args, userId, data, req }) {
     return { success: true };
   }
 
+  if (toolName === "create_goal") {
+    const parsed = goalCreateSchema.safeParse(input);
+    if (!parsed.success) throw new Error("Invalid create_goal arguments");
+    const safeData = ensureAxisUserDataShape(data);
+    const goal = createAxisGoal(parsed.data, safeData.goals.length);
+    safeData.goals.push(goal);
+    if (goal.level === "daily") {
+      ensureDailyGoalTask(safeData, goal);
+      data.tasks = safeData.tasks;
+    }
+    data.goals = safeData.goals;
+    return { goal };
+  }
+
+  if (toolName === "update_goal") {
+    const parsed = goalUpdateSchema.safeParse(input);
+    if (!parsed.success) throw new Error("Invalid update_goal arguments");
+    const safeData = ensureAxisUserDataShape(data);
+    const idx = safeData.goals.findIndex((g) => g && String(g.id) === parsed.data.id);
+    if (idx < 0) throw new Error("Goal not found");
+
+    const existing = safeData.goals[idx] && typeof safeData.goals[idx] === "object" ? safeData.goals[idx] : {};
+    const patch = parsed.data;
+    const prevLevel = normalizeGoalLevel(existing.level);
+
+    if (patch.name !== undefined) existing.name = String(patch.name || "").trim();
+    if (patch.level !== undefined) existing.level = normalizeGoalLevel(patch.level);
+    if (patch.parentId !== undefined) {
+      existing.parentId = patch.parentId ? String(patch.parentId).trim() : null;
+    }
+    if (patch.startDate !== undefined) existing.startDate = String(patch.startDate || "").trim();
+    if (patch.endDate !== undefined) existing.endDate = String(patch.endDate || "").trim();
+    if (patch.manualProgress !== undefined) existing.manualProgress = clampGoalProgress(patch.manualProgress);
+    if (patch.milestones !== undefined) existing.milestones = normalizeGoalMilestones(patch.milestones);
+    if (patch.completed !== undefined) {
+      existing.completed = Boolean(patch.completed);
+      existing.completedAt = existing.completed ? new Date().toISOString() : "";
+    }
+    existing.updatedAt = new Date().toISOString();
+
+    safeData.goals[idx] = existing;
+    data.goals = safeData.goals;
+
+    if (prevLevel === "daily" && existing.level !== "daily") {
+      removeDailyGoalTasks(safeData, existing.id);
+      data.tasks = safeData.tasks;
+      data.schedule = safeData.schedule;
+    } else if (existing.level === "daily") {
+      ensureDailyGoalTask(safeData, existing);
+      data.tasks = safeData.tasks;
+    }
+
+    return { goal: existing };
+  }
+
+  if (toolName === "delete_goal") {
+    const parsed = assistantDeleteGoalSchema.safeParse(input);
+    if (!parsed.success) throw new Error("Invalid delete_goal arguments");
+    const safeData = ensureAxisUserDataShape(data);
+    const idx = safeData.goals.findIndex((g) => g && String(g.id) === parsed.data.id);
+    if (idx < 0) throw new Error("Goal not found");
+    const goal = safeData.goals[idx];
+    safeData.goals = safeData.goals.filter((g) => g && String(g.id) !== parsed.data.id);
+
+    if (goal?.level === "daily") {
+      removeDailyGoalTasks(safeData, parsed.data.id);
+      data.tasks = safeData.tasks;
+      data.schedule = safeData.schedule;
+    }
+
+    const slug = goalSlug(goal);
+    if (slug && Array.isArray(safeData.tasks)) {
+      safeData.tasks.forEach((t) => {
+        if (!t || typeof t !== "object") return;
+        if (t.goalId === parsed.data.id) t.goalId = null;
+        if (t.task_category === slug) t.task_category = "study";
+      });
+      data.tasks = safeData.tasks;
+    }
+
+    data.goals = safeData.goals;
+    return { success: true };
+  }
+
   if (toolName === "add_habit") {
     const parsed = habitCreateSchema.safeParse(input);
     if (!parsed.success) throw new Error("Invalid add_habit arguments");
@@ -1764,18 +2971,26 @@ async function executeAssistantTool({ name, args, userId, data, req }) {
   throw new Error(`Unknown tool: ${toolName}`);
 }
 
-function buildAssistantPlannerPrompt({ message, snapshot }) {
+function buildAssistantPlannerPrompt({ message, snapshot, history }) {
   const toolsJson = JSON.stringify(ASSISTANT_TOOLS, null, 2);
   const snapshotJson = JSON.stringify(snapshot, null, 2);
+  const historyBlock = history ? `Recent conversation (most recent last):\n${history}` : "Recent conversation: (none)";
   return `
 You are an agent running inside Axis (a student planner). You can take actions via tools.
 
 Rules:
 - You MUST return strict JSON only matching: {"assistant_reply":"string","tool_calls":[{"name":"tool","arguments":{...}}]}.
 - Only call tools from the provided tool list.
+- Use the conversation history to resolve references and keep context.
 - If the user request is ambiguous, ask a clarifying question in assistant_reply and leave tool_calls empty.
-- Never invent task or habit IDs; use snapshot/listed IDs.
+- Never invent task, habit, or goal IDs; use snapshot/listed IDs.
 - Do NOT delete anything unless the user explicitly asked.
+- Keep tool_calls minimal (0–4 is ideal).
+- If the user asks to add/edit tasks, use create_task/update_task. If the user asks to manage goals, use create_goal/update_goal.
+- Only rebalance_schedule if the user asks to change/rebalance the schedule.
+- assistant_reply may use Markdown (bullets, **bold**, *italics*, ++underline++, $math$).
+
+${historyBlock}
 
 User message:
 ${message}
@@ -1788,12 +3003,36 @@ ${toolsJson}
 `.trim();
 }
 
-function buildAssistantFinalPrompt({ message, toolResults }) {
+function buildAssistantFinalPrompt({ message, toolResults, history }) {
   const resultsJson = JSON.stringify(toolResults, null, 2);
+  const historyBlock = history ? `Recent conversation (most recent last):\n${history}` : "Recent conversation: (none)";
   return `
 Return JSON only: {"reply":"..."}.
 
 Write a concise, helpful response to the user. Summarize what you changed (if anything), and suggest the next best step.
+The reply may include Markdown (bullets, **bold**, *italics*, ++underline++, $math$). Keep JSON valid by escaping newlines as \\n.
+
+${historyBlock}
+
+User message:
+${message}
+
+Tool results:
+${resultsJson}
+`.trim();
+}
+
+function buildAssistantFinalTextPrompt({ message, toolResults, history }) {
+  const resultsJson = JSON.stringify(toolResults, null, 2);
+  const historyBlock = history ? `Recent conversation (most recent last):\n${history}` : "Recent conversation: (none)";
+  return `
+Write the final user-facing reply in Markdown (no JSON).
+Be concise, but include any important outcomes:
+- What you changed (tasks, habits, goals, schedule).
+- If something failed, say what and what to do next.
+Use Markdown for formatting. For underline, use ++text++. For formulas, use $...$ or $$...$$.
+
+${historyBlock}
 
 User message:
 ${message}
@@ -1833,23 +3072,24 @@ app.post(
       const provider = resolveProviderForUserData(data);
       const snapshot = buildAssistantSnapshot(data);
       const message = req.body.message;
+      const history = formatAssistantHistory(data);
 
-      const planRaw = await callLlm({
-        system:
-          "You are Axis Assistant. Decide which tools to call. Return strict JSON only. Never include markdown fences.",
-        user: buildAssistantPlannerPrompt({ message, snapshot }),
-        temperature: 0.2,
-        maxTokens: 900,
-        expectJSON: true,
+      const planResult = await callLlmWithJsonRepair({
         provider,
+        system:
+          "You are Axis Assistant, an agent that can update the user's planner via tools (tasks, goals, habits, schedule). Return strict JSON only. Do not wrap JSON in markdown fences.",
+        user: buildAssistantPlannerPrompt({ message, snapshot, history }),
+        temperature: 0.15,
+        maxTokens: 900,
+        schema: assistantPlannerResponseSchema,
+        schemaHint: '{"assistant_reply":"string","tool_calls":[{"name":"tool","arguments":{...}}]}',
       });
 
-      const planParsed = assistantPlannerResponseSchema.safeParse(safeParseJSON(planRaw));
-      if (!planParsed.success) {
+      if (!planResult.ok) {
         return res.status(502).json({ error: "Assistant returned invalid JSON." });
       }
 
-      const toolCalls = planParsed.data.tool_calls.slice(0, 6);
+      const toolCalls = planResult.data.tool_calls.slice(0, 6);
       const toolResults = [];
       let changed = false;
 
@@ -1873,37 +3113,162 @@ app.post(
         }
       }
 
-      if (changed) {
+      let reply = planResult.data.assistant_reply;
+
+      if (toolCalls.length) {
+        const finalResult = await callLlmWithJsonRepair({
+          provider,
+          system:
+            "You are Axis Assistant. Produce the final user-facing message. Return strict JSON only. Do not wrap JSON in markdown fences.",
+          user: buildAssistantFinalPrompt({ message, toolResults, history }),
+          temperature: 0.2,
+          maxTokens: 700,
+          schema: assistantFinalResponseSchema,
+          schemaHint: '{"reply":"string"}',
+        });
+
+        if (finalResult.ok) {
+          reply = finalResult.data.reply;
+        }
+      }
+
+      const historyChanged = appendAssistantHistory(data, [
+        { role: "user", content: message },
+        { role: "assistant", content: reply },
+      ]);
+      if (changed || historyChanged) {
         await saveUserData(userId, data);
       }
 
-      if (!toolCalls.length) {
-        return res.json({ reply: planParsed.data.assistant_reply, data });
-      }
-
-      const finalRaw = await callLlm({
-        system:
-          "You are Axis Assistant. Produce the final user-facing message. Return strict JSON only. Never include markdown fences.",
-        user: buildAssistantFinalPrompt({ message, toolResults }),
-        temperature: 0.25,
-        maxTokens: 700,
-        expectJSON: true,
-        provider,
-      });
-
-      const finalParsed = assistantFinalResponseSchema.safeParse(safeParseJSON(finalRaw));
-      if (!finalParsed.success) {
-        return res.json({
-          reply: planParsed.data.assistant_reply,
-          toolResults,
-          data,
-        });
-      }
-
-      res.json({ reply: finalParsed.data.reply, toolResults, data });
+      const response = { reply, data };
+      if (toolCalls.length) response.toolResults = toolResults;
+      res.json(response);
     } catch (err) {
       console.error("assistant agent error:", err);
       res.status(500).json({ error: err.message || "Assistant failed" });
+    }
+  },
+);
+
+app.post(
+  "/api/assistant/agent/stream",
+  authenticateToken,
+  validateBody(assistantAgentRequestSchema),
+  async (req, res) => {
+    setSseHeaders(res);
+    const abort = new AbortController();
+    req.on("close", () => abort.abort());
+
+    try {
+      const userId = req.user.userId;
+      const rawData = await getUserData(userId);
+      if (!rawData) {
+        sseSend(res, "error", { error: "User data not found" });
+        res.end();
+        return;
+      }
+
+      const data = ensureAxisUserDataShape(rawData);
+      const provider = resolveProviderForUserData(data);
+      const snapshot = buildAssistantSnapshot(data);
+      const message = req.body.message;
+      const history = formatAssistantHistory(data);
+
+      sseSend(res, "meta", { provider });
+      sseSend(res, "status", { stage: "planning" });
+
+      const planResult = await callLlmWithJsonRepair({
+        provider,
+        system:
+          "You are Axis Assistant, an agent that can update the user's planner via tools (tasks, goals, habits, schedule). Return strict JSON only. Do not wrap JSON in markdown fences.",
+        user: buildAssistantPlannerPrompt({ message, snapshot, history }),
+        temperature: 0.15,
+        maxTokens: 900,
+        schema: assistantPlannerResponseSchema,
+        schemaHint: '{"assistant_reply":"string","tool_calls":[{"name":"tool","arguments":{...}}]}',
+      });
+
+      if (!planResult.ok) {
+        sseSend(res, "error", { error: "Assistant returned invalid JSON." });
+        res.end();
+        return;
+      }
+
+      const toolCalls = planResult.data.tool_calls.slice(0, 6);
+      const toolResults = [];
+      let changed = false;
+
+      sseSend(res, "status", { stage: "acting", toolCalls: toolCalls.length });
+
+      for (const call of toolCalls) {
+        const toolName = String(call?.name || "").trim();
+        if (!toolName) continue;
+        sseSend(res, "status", { stage: "tool_start", tool: toolName });
+        try {
+          const result = await executeAssistantTool({
+            name: toolName,
+            args: call.arguments,
+            userId,
+            data,
+            req,
+          });
+          toolResults.push({ name: toolName, ok: true, result });
+          if (!["get_snapshot", "list_tasks", "get_calendar_links"].includes(toolName)) {
+            changed = true;
+          }
+          sseSend(res, "status", { stage: "tool_done", tool: toolName, ok: true });
+        } catch (err) {
+          const error = err?.message || String(err);
+          toolResults.push({ name: toolName, ok: false, error });
+          sseSend(res, "status", { stage: "tool_done", tool: toolName, ok: false, error });
+        }
+      }
+
+      if (!toolCalls.length) {
+        const reply = planResult.data.assistant_reply;
+        const historyChanged = appendAssistantHistory(data, [
+          { role: "user", content: message },
+          { role: "assistant", content: reply },
+        ]);
+        if (changed || historyChanged) {
+          await saveUserData(userId, data);
+        }
+        sseSend(res, "token", { token: reply });
+        sseSend(res, "result", { reply, toolResults, data });
+        sseSend(res, "done", {});
+        res.end();
+        return;
+      }
+
+      sseSend(res, "status", { stage: "responding" });
+
+      let reply = "";
+      reply = await callLlmStream({
+        system:
+          "You are Axis Assistant. Write the final user-facing reply in Markdown only (no JSON).",
+        user: buildAssistantFinalTextPrompt({ message, toolResults, history }),
+        temperature: 0.25,
+        maxTokens: 700,
+        provider,
+        onToken: (token) => sseSend(res, "token", { token }),
+        signal: abort.signal,
+      });
+
+      const historyChanged = appendAssistantHistory(data, [
+        { role: "user", content: message },
+        { role: "assistant", content: reply },
+      ]);
+      if (changed || historyChanged) {
+        await saveUserData(userId, data);
+      }
+
+      sseSend(res, "result", { reply, toolResults, data });
+      sseSend(res, "done", {});
+    } catch (err) {
+      const message = err?.name === "AbortError" ? "Client disconnected." : err?.message || String(err);
+      sseSend(res, "error", { error: message });
+    } finally {
+      res.end();
     }
   },
 );
@@ -2110,7 +3475,7 @@ User says important: ${normalizedImportantHint || "unknown"}
       expectJSON: true,
     });
 
-    const parsed = safeParseJSON(reply) || {};
+    const parsed = safeParseJSONFromText(reply) || {};
     const allowed = new Set([
       "Urgent & Important",
       "Urgent, Not Important",
@@ -2150,7 +3515,7 @@ Profile: ${JSON.stringify(profile).slice(0, 2000)}
       expectJSON: true,
       provider,
     });
-    const parsed = safeParseJSON(reply) || { rankedTasks: [] };
+    const parsed = safeParseJSONFromText(reply) || { rankedTasks: [] };
     res.json(parsed);
   } catch (err) {
     console.error("prioritize-tasks error:", err);
@@ -2188,7 +3553,7 @@ Productive windows: ${JSON.stringify(productiveWindows).slice(0, 1500)}
       expectJSON: true,
       provider,
     });
-    const parsed = safeParseJSON(reply) || { blocks: [] };
+    const parsed = safeParseJSONFromText(reply) || { blocks: [] };
     res.json(parsed);
   } catch (err) {
     console.error("schedule error:", err);
@@ -2297,7 +3662,7 @@ Profile: ${JSON.stringify(profileBrief).slice(0, 2000)}
         provider,
       });
 
-      const parsed = safeParseJSON(reply) || {};
+      const parsed = safeParseJSONFromText(reply) || {};
       const blocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
       if (!blocks.length) {
         return res.status(502).json({ error: "AI returned no schedule blocks." });
@@ -2352,7 +3717,7 @@ Goals: ${JSON.stringify(goals).slice(0, 3000)}
       expectJSON: true,
       provider,
     });
-    const parsed = safeParseJSON(reply) || {};
+    const parsed = safeParseJSONFromText(reply) || {};
     res.json(parsed);
   } catch (err) {
     console.error("reflection-summary error:", err);
@@ -2378,7 +3743,7 @@ Tasks: ${JSON.stringify(tasks).slice(0, 3000)}
       expectJSON: true,
       provider,
     });
-    const parsed = safeParseJSON(reply) || {};
+    const parsed = safeParseJSONFromText(reply) || {};
     res.json(parsed);
   } catch (err) {
     console.error("mood-plan error:", err);
@@ -2405,7 +3770,7 @@ Recent tasks: ${JSON.stringify(recentTasks).slice(0, 2000)}
       expectJSON: true,
       provider,
     });
-    const parsed = safeParseJSON(reply) || {};
+    const parsed = safeParseJSONFromText(reply) || {};
     res.json(parsed);
   } catch (err) {
     console.error("habit error:", err);
@@ -2432,7 +3797,7 @@ Estimates: ${JSON.stringify(estimates).slice(0, 2000)}
       expectJSON: true,
       provider,
     });
-    const parsed = safeParseJSON(reply) || {};
+    const parsed = safeParseJSONFromText(reply) || {};
     res.json(parsed);
   } catch (err) {
     console.error("focus-tuning error:", err);
@@ -2456,6 +3821,79 @@ app.use(express.static(path.join(__dirname), {
   }
 }));
 
+app.post("/api/chat/stream", async (req, res) => {
+  const { message, context, provider } = req.body || {};
+  if (!message || typeof message !== "string") {
+    return res.status(400).json({ error: "Missing 'message' in request body." });
+  }
+
+  setSseHeaders(res);
+
+  const abort = new AbortController();
+  req.on("close", () => abort.abort());
+
+  const systemPrompt = `You are Axis, an elite AI productivity strategist and cognitive performance coach. Your purpose is to transform how students and professionals approach their work, time, and goals.
+
+CORE IDENTITY:
+- You are precise, insightful, and action-oriented
+- You speak with quiet confidence—never preachy, never condescending
+- You treat every interaction as a strategic consultation
+- You balance warmth with professionalism
+
+COMMUNICATION STYLE:
+- Lead with the most important insight or action
+- Use bullet points for clarity when listing multiple items
+- Be concise but not terse—each word should earn its place
+- Ask one clarifying question when ambiguity could lead to suboptimal advice
+- Use Markdown: **bold** for emphasis, *italics* for nuance, \`code\` for specific values, ++underline++ for key terms
+- For mathematical concepts, use $inline$ or $$block$$ notation
+
+EXPERTISE AREAS:
+- Time-blocking and schedule optimization
+- Priority frameworks (Eisenhower Matrix, MoSCoW, etc.)
+- Procrastination psychology and intervention strategies
+- Deep work protocols and focus management
+- Goal decomposition and milestone tracking
+- Energy management and cognitive load balancing
+- Habit formation using evidence-based methods
+
+BEHAVIORAL PRINCIPLES:
+- Never enable procrastination—redirect with empathy but firmness
+- Protect work-life boundaries while maximizing productive hours
+- Adapt recommendations to the user's energy, mood, and context
+- Celebrate progress without hollow praise
+- When tasks seem overwhelming, break them down immediately
+
+Remember: You are not just organizing tasks—you are architecting success.`;
+
+  let userContent = message;
+  if (context && typeof context === "string") {
+    userContent = `Context:\n${context}\n\nUser question:\n${message}`;
+  }
+
+  const resolvedProvider = resolveProviderForRequest(provider || LLM_PROVIDER || "deepseek");
+  sseSend(res, "meta", { provider: resolvedProvider });
+
+  let reply = "";
+  try {
+    reply = await callLlmStream({
+      system: systemPrompt,
+      user: userContent,
+      temperature: 0.7,
+      maxTokens: 512,
+      provider: resolvedProvider,
+      onToken: (token) => sseSend(res, "token", { token }),
+      signal: abort.signal,
+    });
+    sseSend(res, "done", { reply });
+  } catch (err) {
+    const message = err?.name === "AbortError" ? "Client disconnected." : err?.message || String(err);
+    sseSend(res, "error", { error: message });
+  } finally {
+    res.end();
+  }
+});
+
 app.post("/api/chat", async (req, res) => {
   try {
     const { message, context } = req.body || {};
@@ -2463,10 +3901,30 @@ app.post("/api/chat", async (req, res) => {
       return res.status(400).json({ error: "Missing 'message' in request body." });
     }
 
-    const systemPrompt =
-      "You are Axis, a supportive, gender-neutral, professional AI study planner. " +
-      "You help students prioritize tasks, manage time, combat procrastination, and protect work-life balance. " +
-      "Keep answers short, concrete, and actionable. Never encourage procrastination.";
+    const systemPrompt = `You are Axis, an elite AI productivity strategist and cognitive performance coach. Your purpose is to transform how students and professionals approach their work, time, and goals.
+
+CORE IDENTITY:
+- You are precise, insightful, and action-oriented
+- You speak with quiet confidence—never preachy, never condescending
+- You treat every interaction as a strategic consultation
+- You balance warmth with professionalism
+
+COMMUNICATION STYLE:
+- Lead with the most important insight or action
+- Use bullet points for clarity when listing multiple items
+- Be concise but not terse—each word should earn its place
+- Ask one clarifying question when ambiguity could lead to suboptimal advice
+- Use Markdown: **bold** for emphasis, *italics* for nuance, \`code\` for specific values, ++underline++ for key terms
+- For mathematical concepts, use $inline$ or $$block$$ notation
+
+BEHAVIORAL PRINCIPLES:
+- Never enable procrastination—redirect with empathy but firmness
+- Protect work-life boundaries while maximizing productive hours
+- Adapt recommendations to the user's energy, mood, and context
+- Celebrate progress without hollow praise
+- When tasks seem overwhelming, break them down immediately
+
+Remember: You are not just organizing tasks—you are architecting success.`;
 
     let userContent = message;
     if (context && typeof context === "string") {

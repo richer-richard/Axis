@@ -18,6 +18,7 @@
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="manifest" href="manifest.json" />
   <title>Axis - Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.27/dist/katex.min.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -65,7 +66,7 @@
               <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
             </svg>
           </button>
-          <button id="settingsBtn" class="btn-icon" title="Settings">
+          <button id="settingsBtn" class="btn-icon" title="Settings" aria-label="Settings">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="3"></circle>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
@@ -275,26 +276,26 @@
       <section class="calendar-section" aria-labelledby="calendar-heading">
         <header class="calendar-header">
           <div class="calendar-title">
-            <h2 id="calendar-heading">Your AI‑generated schedule</h2>
+            <h2 id="calendar-heading">Your Schedule</h2>
             <span id="calendarSubtitle" class="calendar-subtitle">
               Once generated, your time‑blocked plan will appear here.
             </span>
           </div>
           <div class="calendar-controls" role="group" aria-label="Calendar view controls">
-            <button id="syncCalendarBtn" class="btn btn-secondary btn-sync" title="Sync daily goals to tasks and regenerate schedule" aria-label="Sync calendar and regenerate schedule">
+            <button type="button" id="syncCalendarBtn" class="btn btn-secondary btn-sync" title="Sync daily goals to tasks and regenerate schedule" aria-label="Sync calendar and regenerate schedule">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;" aria-hidden="true">
                 <path d="M1 8v6h6M15 8V2H9M1 8l6-6M15 8l-6 6"/>
               </svg>
               Sync Calendar
             </button>
-            <button id="rebalanceWeekBtn" class="btn btn-secondary btn-sync" title="Rebalance your schedule for the week">
+            <button type="button" id="rebalanceWeekBtn" class="btn btn-secondary btn-sync" title="Rebalance your schedule for the week" aria-label="Rebalance week schedule">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;">
                 <path d="M8 1a7 7 0 1 0 7 7"/>
                 <path d="M13.5 3.5v4h-4"/>
               </svg>
               Rebalance Week
             </button>
-            <button id="calendarExportBtn" class="btn btn-secondary btn-sync" title="Export schedule to iCal/Google" aria-label="Export schedule">
+            <button type="button" id="calendarExportBtn" class="btn btn-secondary btn-sync" title="Export schedule to iCal/Google" aria-label="Export schedule">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;" aria-hidden="true">
                 <path d="M8 2v7"/>
                 <path d="M5 6l3 3 3-3"/>
@@ -303,9 +304,26 @@
               Export
               <span id="calendarExportBadge" class="calendar-export-badge hidden" aria-hidden="true"></span>
             </button>
-            <button class="btn-toggle-view active" data-view="daily">Daily</button>
-            <button class="btn-toggle-view" data-view="weekly">Weekly</button>
-            <button class="btn-toggle-view" data-view="monthly">Monthly</button>
+            <button type="button" id="calendarPrevBtn" class="btn btn-secondary btn-sync" title="Previous" aria-label="Previous">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px;" aria-hidden="true">
+                <path d="M10 3L5 8l5 5"/>
+              </svg>
+              Prev
+            </button>
+            <button type="button" id="calendarTodayBtn" class="btn btn-secondary btn-sync" title="Today" aria-label="Today">
+              Today
+            </button>
+            <button type="button" id="calendarNextBtn" class="btn btn-secondary btn-sync" title="Next" aria-label="Next">
+              Next
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" style="margin-left: 6px;" aria-hidden="true">
+                <path d="M6 3l5 5-5 5"/>
+              </svg>
+            </button>
+            <label class="sr-only" for="calendarJumpToDate">Jump to date</label>
+            <input type="date" id="calendarJumpToDate" class="calendar-date-input" aria-label="Jump to date" />
+            <button type="button" class="btn-toggle-view active" data-view="daily" aria-pressed="true">Daily</button>
+            <button type="button" class="btn-toggle-view" data-view="weekly" aria-pressed="false">Weekly</button>
+            <button type="button" class="btn-toggle-view" data-view="monthly" aria-pressed="false">Monthly</button>
           </div>
         </header>
 
@@ -595,7 +613,7 @@
         <div class="settings-content">
           <div class="settings-header">
             <h2>Settings</h2>
-            <button id="closeSettingsBtn" class="btn-icon" title="Close">×</button>
+            <button id="closeSettingsBtn" class="btn-icon" title="Close" aria-label="Close">×</button>
           </div>
           <div class="settings-tabs">
             <button class="settings-tab active" data-tab="profile">Profile</button>
@@ -898,7 +916,7 @@
         <div class="modal-content modal-content-large">
           <div class="modal-header">
             <h2>Keyboard Shortcuts</h2>
-            <button id="closeShortcutsHelpBtn" class="btn-icon" title="Close">×</button>
+            <button id="closeShortcutsHelpBtn" class="btn-icon" title="Close" aria-label="Close">×</button>
           </div>
           <div class="shortcuts-grid">
             <div class="shortcut-row"><span class="shortcut-keys"><kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>K</kbd></span><span class="shortcut-desc">Command palette</span></div>
@@ -918,7 +936,7 @@
         <div class="modal-content">
           <div class="modal-header">
             <h2 id="taskEditorTitle">Add Task</h2>
-            <button id="closeTaskEditorBtn" class="btn-icon" title="Close">×</button>
+            <button id="closeTaskEditorBtn" class="btn-icon" title="Close" aria-label="Close">×</button>
           </div>
           <form id="taskEditorForm" class="modal-form">
             <div class="form-group">
@@ -1029,7 +1047,7 @@
         <div class="modal-content modal-content-large">
           <div class="modal-header">
             <h2>Smart Rescheduling</h2>
-            <button id="closeSmartRescheduleBtn" class="btn-icon" title="Close">×</button>
+            <button id="closeSmartRescheduleBtn" class="btn-icon" title="Close" aria-label="Close">×</button>
           </div>
           <div class="modal-form">
             <p class="settings-description" style="margin-top: 0;">
@@ -1050,7 +1068,7 @@
         <div class="modal-content modal-content-large">
           <div class="modal-header">
             <h2>Calendar Export</h2>
-            <button id="closeCalendarExportBtn" class="btn-icon" title="Close">×</button>
+            <button id="closeCalendarExportBtn" class="btn-icon" title="Close" aria-label="Close">×</button>
           </div>
           <div class="modal-form">
             <p class="settings-description" style="margin-top: 0;">
@@ -1098,7 +1116,7 @@
         <div class="modal-content modal-content-large">
           <div class="modal-header">
             <h2 id="goalDetailsTitle">Goal Progress</h2>
-            <button id="closeGoalDetailsBtn" class="btn-icon" title="Close">×</button>
+            <button id="closeGoalDetailsBtn" class="btn-icon" title="Close" aria-label="Close">×</button>
           </div>
           <form id="goalDetailsForm" class="modal-form">
             <input type="hidden" id="goalDetailsId" />
@@ -1145,7 +1163,7 @@
         <div class="modal-content">
           <div class="modal-header">
             <h2>Goal Complete</h2>
-            <button id="closeGoalCompleteBtn" class="btn-icon" title="Close">×</button>
+            <button id="closeGoalCompleteBtn" class="btn-icon" title="Close" aria-label="Close">×</button>
           </div>
           <div class="modal-form" style="text-align: center;">
             <p id="goalCompleteMessage" style="margin-top: 0;"></p>
@@ -1160,7 +1178,7 @@
         <div class="modal-content">
           <div class="modal-header">
             <h2>Add Goal</h2>
-            <button id="closeAddGoalBtn" class="btn-icon" title="Close">×</button>
+            <button id="closeAddGoalBtn" class="btn-icon" title="Close" aria-label="Close">×</button>
           </div>
           <form id="addGoalForm" class="modal-form">
             <div class="form-group">
@@ -1191,7 +1209,7 @@
         <div class="modal-content modal-content-large">
           <div class="modal-header">
             <h2 id="reflectionTitle">Reflection</h2>
-            <button id="closeReflectionBtn" class="btn-icon" title="Close">×</button>
+            <button id="closeReflectionBtn" class="btn-icon" title="Close" aria-label="Close">×</button>
           </div>
           <form id="reflectionForm" class="modal-form">
             <div class="form-group">
@@ -1208,7 +1226,7 @@
         <div class="pomodoro-modal-content">
           <div class="pomodoro-header">
             <h2>Focus Timer</h2>
-            <button id="closePomodoroBtn" class="pomodoro-close-btn" title="Close">×</button>
+            <button id="closePomodoroBtn" class="pomodoro-close-btn" title="Close" aria-label="Close">×</button>
           </div>
           <div class="pomodoro-task-info">
             <p id="pomodoroTaskName" class="pomodoro-task-name"></p>
@@ -1236,6 +1254,10 @@
   <script type="module" src="js/modules/service-worker-register.js"></script>
   <script type="module" src="js/modules/offline-ui.js"></script>
   <script type="module" src="js/modules/keyboard-nav.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.27/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it-katex@2.0.3/dist/markdown-it-katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it-ins@4.0.0/dist/markdown-it-ins.min.js"></script>
   <script src="script.js"></script>
   <script src="js/modules/toast.js"></script>
   <script src="js/utils/confetti.js"></script>
